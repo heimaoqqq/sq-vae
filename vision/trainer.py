@@ -1,4 +1,5 @@
 import time
+import sys
 
 from trainer_base import TrainerBase
 from util import *
@@ -21,7 +22,14 @@ class GaussianSQVAETrainer(TrainerBase):
         perplexity = []
         self.model.train()
         start_time = time.time()
+        print(f"Epoch {epoch}: Starting training with {len(self.train_loader)} batches")
+        sys.stdout.flush()  # 强制刷新输出缓冲区
+        
         for batch_idx, (x, _) in enumerate(self.train_loader):
+            if batch_idx % 10 == 0:
+                print(f"  Batch {batch_idx}/{len(self.train_loader)}")
+                sys.stdout.flush()  # 强制刷新输出缓冲区
+                
             if self.flgs.decay:
                 step = (epoch - 1) * len(self.train_loader) + batch_idx + 1
                 temperature_current = self._set_temperature(
@@ -42,17 +50,30 @@ class GaussianSQVAETrainer(TrainerBase):
             train_loss.append(loss["all"].detach().cpu().item())
             ms_error.append(loss["mse"].detach().cpu().item())
             perplexity.append(loss["perplexity"].detach().cpu().item())
+            
+            # 每50个批次打印一次当前损失
+            if batch_idx % 50 == 0 and batch_idx > 0:
+                current_loss = np.mean(train_loss[-50:])
+                current_mse = np.mean(ms_error[-50:])
+                current_perplexity = np.mean(perplexity[-50:])
+                print(f"  Batch {batch_idx}/{len(self.train_loader)}, "
+                      f"Loss: {current_loss:.4f}, MSE: {current_mse:.4f}, "
+                      f"Perplexity: {current_perplexity:.4f}")
+                sys.stdout.flush()  # 强制刷新输出缓冲区
 
         result = {}
         result["loss"] = np.asarray(train_loss).mean(0)
         result["mse"] = np.array(ms_error).mean(0)
         result["perplexity"] = np.array(perplexity).mean(0)
         self.print_loss(result, "train", time.time()-start_time)
+        sys.stdout.flush()  # 强制刷新输出缓冲区
                 
         return result    
     
     def _test(self, mode="validation"):
         self.model.eval()
+        print(f"Starting {mode} evaluation...")
+        sys.stdout.flush()  # 强制刷新输出缓冲区
         _ = self._test_sub(False, mode)
         result = self._test_sub(True, mode)
         self.scheduler.step(result["loss"])
@@ -67,8 +88,15 @@ class GaussianSQVAETrainer(TrainerBase):
         elif mode == "test":
             data_loader = self.test_loader
         start_time = time.time()
+        print(f"Evaluating with {'deterministic' if flg_quant_det else 'stochastic'} quantization...")
+        sys.stdout.flush()  # 强制刷新输出缓冲区
+        
         with torch.no_grad():
-            for x, _ in data_loader:
+            for batch_idx, (x, _) in enumerate(data_loader):
+                if batch_idx % 10 == 0:
+                    print(f"  Eval batch {batch_idx}/{len(data_loader)}")
+                    sys.stdout.flush()  # 强制刷新输出缓冲区
+                    
                 x = x.cuda()
                 _, _, loss = self.model(x, flg_quant_det=flg_quant_det)
                 
@@ -85,18 +113,23 @@ class GaussianSQVAETrainer(TrainerBase):
         result["mse"] = np.array(ms_error).mean(0)
         result["perplexity"] = np.array(perplexity).mean(0)
         self.print_loss(result, mode, time.time()-start_time)
+        sys.stdout.flush()  # 强制刷新输出缓冲区
         
         return result
     
     def generate_reconstructions(self, filename, nrows=4, ncols=8):
+        print(f"Generating reconstructions to {filename}...")
+        sys.stdout.flush()  # 强制刷新输出缓冲区
         self._generate_reconstructions_continuous(filename, nrows=nrows, ncols=ncols)
     
     def print_loss(self, result, mode, time_interval):
-        myprint(mode.capitalize().ljust(16) +
-            "Loss: {:5.4f}, MSE: {:5.4f}, Perplexity: {:5.4f}, Time: {:5.3f} sec"
+        message = mode.capitalize().ljust(16) + \
+            "Loss: {:5.4f}, MSE: {:5.4f}, Perplexity: {:5.4f}, Time: {:5.3f} sec" \
             .format(
                 result["loss"], result["mse"], result["perplexity"], time_interval
-            ), self.flgs.noprint)
+            )
+        print(message)  # 总是打印，忽略noprint标志
+        sys.stdout.flush()  # 强制刷新输出缓冲区
 
 
 class VmfSQVAETrainer(TrainerBase):
@@ -116,7 +149,14 @@ class VmfSQVAETrainer(TrainerBase):
         perplexity = []
         self.model.train()
         start_time = time.time()
+        print(f"Epoch {epoch}: Starting training with {len(self.train_loader)} batches")
+        sys.stdout.flush()  # 强制刷新输出缓冲区
+        
         for batch_idx, (x, y) in enumerate(self.train_loader):
+            if batch_idx % 10 == 0:
+                print(f"  Batch {batch_idx}/{len(self.train_loader)}")
+                sys.stdout.flush()  # 强制刷新输出缓冲区
+                
             y = self.preprocess(x, y)
             if self.flgs.decay:
                 step = (epoch - 1) * len(self.train_loader) + batch_idx + 1
@@ -137,16 +177,29 @@ class VmfSQVAETrainer(TrainerBase):
             train_loss.append(loss["all"].item())
             acc.append(loss["acc"].item())
             perplexity.append(loss["perplexity"].item())
+            
+            # 每50个批次打印一次当前损失
+            if batch_idx % 50 == 0 and batch_idx > 0:
+                current_loss = np.mean(train_loss[-50:])
+                current_acc = np.mean(acc[-50:])
+                current_perplexity = np.mean(perplexity[-50:])
+                print(f"  Batch {batch_idx}/{len(self.train_loader)}, "
+                      f"Loss: {current_loss:.4f}, Acc: {current_acc:.4f}, "
+                      f"Perplexity: {current_perplexity:.4f}")
+                sys.stdout.flush()  # 强制刷新输出缓冲区
 
         result = {}
         result["loss"] = np.asarray(train_loss).mean(0)
         result["acc"] = np.array(acc).mean(0)
         result["perplexity"] = np.array(perplexity).mean(0)
         self.print_loss(result, "train", time.time()-start_time)
+        sys.stdout.flush()  # 强制刷新输出缓冲区
         
         return result
     
     def _test(self, mode="val"):
+        print(f"Starting {mode} evaluation...")
+        sys.stdout.flush()  # 强制刷新输出缓冲区
         _ = self._test_sub(False)
         result = self._test_sub(True, mode)
         self.scheduler.step(result["loss"])
@@ -162,8 +215,15 @@ class VmfSQVAETrainer(TrainerBase):
         elif mode == "test":
             data_loader = self.test_loader
         start_time = time.time()
+        print(f"Evaluating with {'deterministic' if flg_quant_det else 'stochastic'} quantization...")
+        sys.stdout.flush()  # 强制刷新输出缓冲区
+        
         with torch.no_grad():
-            for x, y in data_loader:
+            for batch_idx, (x, y) in enumerate(data_loader):
+                if batch_idx % 10 == 0:
+                    print(f"  Eval batch {batch_idx}/{len(data_loader)}")
+                    sys.stdout.flush()  # 强制刷新输出缓冲区
+                    
                 y = self.preprocess(x, y)
                 x_reconst, _, loss = self.model(y, flg_quant_det=flg_quant_det)
                 
@@ -184,20 +244,25 @@ class VmfSQVAETrainer(TrainerBase):
         result["miou"] = mIoU
         result["perplexity"] = np.array(perplexity).mean(0)
         self.print_loss(result, mode, time.time()-start_time)
-        myprint("%15s"%"PixAcc: {:5.4f} mIoU: {:5.4f}".format(
+        print("%15s"%"PixAcc: {:5.4f} mIoU: {:5.4f}".format(
             pixAcc, mIoU
-        ), self.flgs.noprint)
+        ))
+        sys.stdout.flush()  # 强制刷新输出缓冲区
         
         return result
     
     def generate_reconstructions(self, filename, nrows=4, ncols=8):
+        print(f"Generating reconstructions to {filename}...")
+        sys.stdout.flush()  # 强制刷新输出缓冲区
         self._generate_reconstructions_discrete(filename, nrows=nrows, ncols=ncols)
     
     def print_loss(self, result, mode, time_interval):
-        myprint(mode.capitalize().ljust(16) +
-            "Loss: {:5.4f}, ACC: {:5.4f}, Perplexity: {:5.4f}, Time: {:5.3f} sec"
+        message = mode.capitalize().ljust(16) + \
+            "Loss: {:5.4f}, ACC: {:5.4f}, Perplexity: {:5.4f}, Time: {:5.3f} sec" \
             .format(
             result["loss"], result["acc"], result["perplexity"], time_interval
-            ), self.flgs.noprint)
+            )
+        print(message)  # 总是打印，忽略noprint标志
+        sys.stdout.flush()  # 强制刷新输出缓冲区
 
 
