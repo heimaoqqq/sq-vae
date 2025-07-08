@@ -2,6 +2,7 @@ import shutil
 import json
 import datetime
 from torch import nn
+import matplotlib.pyplot as plt
 
 from model import GaussianSQVAE, VmfSQVAE
 from util import *
@@ -63,14 +64,14 @@ class TrainerBase(nn.Module):
                     torch.save(
                         self.model.state_dict(), os.path.join(self.path, "best.pt"))
                     self.generate_reconstructions(
-                        os.path.join(self.path, "reconstructions_best"))
+                        os.path.join(self.path, "reconstructions_best"), individual=True)
                 else:
                     myprint("----Not saving model! Last saved: {}"
                         .format(LAST_SAVED), self.flgs.noprint)
                 torch.save(
                     self.model.state_dict(), os.path.join(self.path, "current.pt"))
                 self.generate_reconstructions(
-                    os.path.join(self.path, "reconstructions_current"))
+                    os.path.join(self.path, "reconstructions_current"), individual=True)
     
     def preprocess(self, x, y):
         if self.cfgs.dataset.name == "CelebAMask_HQ":
@@ -131,6 +132,44 @@ class TrainerBase(nn.Module):
         x_cat = torch.cat([x, x_tilde], 0)
         images = x_cat.cpu().data.numpy()
         plot_images(images, filename+".png", nrows=nrows, ncols=ncols)
+    
+    def _generate_individual_reconstructions(self, filename, num_images=8):
+        """生成单独的原始图像和重建图像文件"""
+        self.model.eval()
+        x = next(iter(self.test_loader))[0]
+        x = x[:num_images].cuda()
+        output = self.model(x, flg_train=False, flg_quant_det=True)
+        x_tilde = output[0]
+        
+        # 创建保存目录
+        save_dir = filename + "_individual"
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir)
+            
+        # 保存原始图像和重建图像
+        for i in range(num_images):
+            # 获取原始图像和重建图像
+            original = x[i].cpu().data.numpy()
+            reconstructed = x_tilde[i].cpu().data.numpy()
+            
+            # 如果是单通道图像，转换为三通道
+            if original.shape[0] == 1:
+                original = np.repeat(original, 3, axis=0)
+                reconstructed = np.repeat(reconstructed, 3, axis=0)
+            
+            # 保存原始图像
+            plt.figure(figsize=(5, 5))
+            plt.axis('off')
+            plt.imshow(original.transpose((1, 2, 0)))
+            plt.savefig(os.path.join(save_dir, f"original_{i}.png"), bbox_inches="tight")
+            plt.close()
+            
+            # 保存重建图像
+            plt.figure(figsize=(5, 5))
+            plt.axis('off')
+            plt.imshow(reconstructed.transpose((1, 2, 0)))
+            plt.savefig(os.path.join(save_dir, f"reconstructed_{i}.png"), bbox_inches="tight")
+            plt.close()
     
     def _generate_reconstructions_discrete(self, filename, nrows=4, ncols=8):
         self.model.eval()

@@ -97,10 +97,13 @@ class GaussianSQVAETrainer(TrainerBase):
         
         return result
     
-    def generate_reconstructions(self, filename, nrows=4, ncols=8):
+    def generate_reconstructions(self, filename, nrows=4, ncols=8, individual=False):
         print(f"Generating reconstructions...")
         sys.stdout.flush()  # 强制刷新输出缓冲区
-        self._generate_reconstructions_continuous(filename, nrows=nrows, ncols=ncols)
+        if individual:
+            self._generate_individual_reconstructions(filename, num_images=8)
+        else:
+            self._generate_reconstructions_continuous(filename, nrows=nrows, ncols=ncols)
     
     def print_loss(self, result, mode, time_interval):
         message = mode.capitalize().ljust(16) + \
@@ -211,10 +214,13 @@ class VmfSQVAETrainer(TrainerBase):
         
         return result
     
-    def generate_reconstructions(self, filename, nrows=4, ncols=8):
+    def generate_reconstructions(self, filename, nrows=4, ncols=8, individual=False):
         print(f"Generating reconstructions...")
         sys.stdout.flush()  # 强制刷新输出缓冲区
-        self._generate_reconstructions_discrete(filename, nrows=nrows, ncols=ncols)
+        if individual:
+            self._generate_individual_reconstructions(filename, num_images=8)
+        else:
+            self._generate_reconstructions_discrete(filename, nrows=nrows, ncols=ncols)
     
     def print_loss(self, result, mode, time_interval):
         message = mode.capitalize().ljust(16) + \
