@@ -28,19 +28,26 @@ class MicroDopplerDataset(Dataset):
             if folder.startswith('ID_') and os.path.isdir(os.path.join(root_dir, folder)):
                 self.folders.append(folder)
         
-        # 收集所有图像路径
+        # 创建ID到标签的映射
+        self.id_to_label = {folder: idx for idx, folder in enumerate(self.folders)}
+        
+        # 收集所有图像路径和对应标签
         self.image_paths = []
+        self.labels = []
         for folder in self.folders:
             folder_path = os.path.join(root_dir, folder)
+            folder_label = self.id_to_label[folder]
             for img_name in os.listdir(folder_path):
                 if img_name.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp')):
                     self.image_paths.append(os.path.join(folder_path, img_name))
+                    self.labels.append(folder_label)
         
     def __len__(self):
         return len(self.image_paths)
     
     def __getitem__(self, idx):
         img_path = self.image_paths[idx]
+        label = self.labels[idx]
         
         # 加载图像
         image = Image.open(img_path).convert('RGB')
@@ -56,7 +63,7 @@ class MicroDopplerDataset(Dataset):
             # 默认变换为ToTensor
             image = transforms.ToTensor()(image)
         
-        return image
+        return image, torch.tensor(label)
 
 
 def get_microdoppler_dataloaders(dataset_path, batch_size=32, num_workers=2, 
@@ -90,6 +97,10 @@ def get_microdoppler_dataloaders(dataset_path, batch_size=32, num_workers=2,
     
     # 创建数据集
     full_dataset = MicroDopplerDataset(dataset_path, transform=transform, resize=resize)
+    
+    # 打印数据集信息
+    print(f"找到 {len(full_dataset)} 张图像，来自 {len(full_dataset.folders)} 个用户ID")
+    print(f"用户ID映射到标签: {full_dataset.id_to_label}")
     
     # 计算分割大小
     dataset_size = len(full_dataset)
