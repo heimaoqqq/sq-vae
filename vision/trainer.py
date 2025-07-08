@@ -29,6 +29,11 @@ class GaussianSQVAETrainer(TrainerBase):
                 self.model.module.quantizer.set_temperature(temperature_current)
             x = x.cuda()
             _, _, loss = self.model(x, flg_train=True, flg_quant_det=False)
+            
+            # 确保loss["all"]是标量
+            if not isinstance(loss["all"], torch.Tensor) or loss["all"].numel() > 1:
+                loss["all"] = loss["all"].mean()
+            
             self.optimizer.zero_grad()
             loss["all"].backward()
             self.optimizer.step()
@@ -65,6 +70,15 @@ class GaussianSQVAETrainer(TrainerBase):
             for x, _ in data_loader:
                 x = x.cuda()
                 _, _, loss = self.model(x, flg_quant_det=flg_quant_det)
+                
+                # 确保loss是标量
+                if not isinstance(loss["all"], torch.Tensor) or loss["all"].numel() > 1:
+                    loss["all"] = loss["all"].mean()
+                if not isinstance(loss["mse"], torch.Tensor) or loss["mse"].numel() > 1:
+                    loss["mse"] = loss["mse"].mean()
+                if not isinstance(loss["perplexity"], torch.Tensor) or loss["perplexity"].numel() > 1:
+                    loss["perplexity"] = loss["perplexity"].mean()
+                
                 test_loss.append(loss["all"].item())
                 ms_error.append(loss["mse"].item())
                 perplexity.append(loss["perplexity"].item())
@@ -112,6 +126,11 @@ class VmfSQVAETrainer(TrainerBase):
                     step, self.cfgs.quantization.temperature)
                 self.model.module.quantizer.set_temperature(temperature_current)
             _, _, loss = self.model(y, flg_train=True, flg_quant_det=False)
+            
+            # 确保loss["all"]是标量
+            if not isinstance(loss["all"], torch.Tensor) or loss["all"].numel() > 1:
+                loss["all"] = loss["all"].mean()
+            
             self.optimizer.zero_grad()
             loss["all"].backward()
             self.optimizer.step()
@@ -148,6 +167,15 @@ class VmfSQVAETrainer(TrainerBase):
             for x, y in data_loader:
                 y = self.preprocess(x, y)
                 x_reconst, _, loss = self.model(y, flg_quant_det=flg_quant_det)
+                
+                # 确保loss是标量
+                if not isinstance(loss["all"], torch.Tensor) or loss["all"].numel() > 1:
+                    loss["all"] = loss["all"].mean()
+                if not isinstance(loss["acc"], torch.Tensor) or loss["acc"].numel() > 1:
+                    loss["acc"] = loss["acc"].mean()
+                if not isinstance(loss["perplexity"], torch.Tensor) or loss["perplexity"].numel() > 1:
+                    loss["perplexity"] = loss["perplexity"].mean()
+                
                 self.metric_semseg.update(x_reconst, y)
                 pixAcc, mIoU, _ = self.metric_semseg.get()
                 test_loss.append(loss["all"].item())
