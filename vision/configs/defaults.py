@@ -2,8 +2,8 @@ from yacs.config import CfgNode as CN
 
 _C = CN(new_allowed=True)
 _C.path = "/kaggle/working/outputs" # To be set in advance
-_C.path_dataset = "/kaggle/working/data" # To be set in advance
-_C.nworker = 2
+_C.path_dataset = "/kaggle/input/dataset" # To be set in advance
+_C.nworker = 4
 _C.list_dir_for_copy = ['', 'networks/'] # []
 
 
