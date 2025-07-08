@@ -8,6 +8,7 @@ from torchvision import datasets, transforms
 from torch.utils.data.dataset import Subset
 
 from third_party.celebamask_hq import Data_Loader
+from custom_dataset import get_microdoppler_dataloaders
 
 
 def set_seeds(seed=0, fully_deterministic=True):
@@ -112,6 +113,16 @@ def get_loader(dataset, path_dataset, bs=64, n_work=2):
         train_loader = train_dataset.loader()
         val_loader = val_dataset.loader()
         test_loader = test_dataset.loader()
+    elif dataset == "MicroDoppler":
+        # 使用自定义的微多普勒数据集加载器
+        train_loader, val_loader, test_loader = get_microdoppler_dataloaders(
+            path_dataset,
+            batch_size=bs,
+            num_workers=n_work,
+            image_size=(64, 64),  # 调整为模型期望的大小
+            train_ratio=0.7,
+            val_ratio=0.15
+        )
 
     return train_loader, val_loader, test_loader
 

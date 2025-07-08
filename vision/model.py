@@ -9,6 +9,7 @@ import networks.fashion_mnist as net_fashionmnist
 import networks.cifar10 as net_cifar10
 import networks.celeba as net_celeba
 import networks.celebamask_hq as net_celebamask_hq
+import networks.microdoppler as net_microdoppler
 from third_party.ive import ive
 
 
