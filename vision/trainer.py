@@ -22,14 +22,10 @@ class GaussianSQVAETrainer(TrainerBase):
         perplexity = []
         self.model.train()
         start_time = time.time()
-        print(f"Epoch {epoch}: Starting training with {len(self.train_loader)} batches")
+        print(f"Epoch {epoch}: Training...")
         sys.stdout.flush()  # 强制刷新输出缓冲区
         
         for batch_idx, (x, _) in enumerate(self.train_loader):
-            if batch_idx % 10 == 0:
-                print(f"  Batch {batch_idx}/{len(self.train_loader)}")
-                sys.stdout.flush()  # 强制刷新输出缓冲区
-                
             if self.flgs.decay:
                 step = (epoch - 1) * len(self.train_loader) + batch_idx + 1
                 temperature_current = self._set_temperature(
@@ -50,16 +46,6 @@ class GaussianSQVAETrainer(TrainerBase):
             train_loss.append(loss["all"].detach().cpu().item())
             ms_error.append(loss["mse"].detach().cpu().item())
             perplexity.append(loss["perplexity"].detach().cpu().item())
-            
-            # 每50个批次打印一次当前损失
-            if batch_idx % 50 == 0 and batch_idx > 0:
-                current_loss = np.mean(train_loss[-50:])
-                current_mse = np.mean(ms_error[-50:])
-                current_perplexity = np.mean(perplexity[-50:])
-                print(f"  Batch {batch_idx}/{len(self.train_loader)}, "
-                      f"Loss: {current_loss:.4f}, MSE: {current_mse:.4f}, "
-                      f"Perplexity: {current_perplexity:.4f}")
-                sys.stdout.flush()  # 强制刷新输出缓冲区
 
         result = {}
         result["loss"] = np.asarray(train_loss).mean(0)
@@ -72,7 +58,7 @@ class GaussianSQVAETrainer(TrainerBase):
     
     def _test(self, mode="validation"):
         self.model.eval()
-        print(f"Starting {mode} evaluation...")
+        print(f"Epoch evaluation ({mode})...")
         sys.stdout.flush()  # 强制刷新输出缓冲区
         _ = self._test_sub(False, mode)
         result = self._test_sub(True, mode)
@@ -88,15 +74,9 @@ class GaussianSQVAETrainer(TrainerBase):
         elif mode == "test":
             data_loader = self.test_loader
         start_time = time.time()
-        print(f"Evaluating with {'deterministic' if flg_quant_det else 'stochastic'} quantization...")
-        sys.stdout.flush()  # 强制刷新输出缓冲区
         
         with torch.no_grad():
             for batch_idx, (x, _) in enumerate(data_loader):
-                if batch_idx % 10 == 0:
-                    print(f"  Eval batch {batch_idx}/{len(data_loader)}")
-                    sys.stdout.flush()  # 强制刷新输出缓冲区
-                    
                 x = x.cuda()
                 _, _, loss = self.model(x, flg_quant_det=flg_quant_det)
                 
@@ -118,7 +98,7 @@ class GaussianSQVAETrainer(TrainerBase):
         return result
     
     def generate_reconstructions(self, filename, nrows=4, ncols=8):
-        print(f"Generating reconstructions to {filename}...")
+        print(f"Generating reconstructions...")
         sys.stdout.flush()  # 强制刷新输出缓冲区
         self._generate_reconstructions_continuous(filename, nrows=nrows, ncols=ncols)
     
@@ -149,14 +129,10 @@ class VmfSQVAETrainer(TrainerBase):
         perplexity = []
         self.model.train()
         start_time = time.time()
-        print(f"Epoch {epoch}: Starting training with {len(self.train_loader)} batches")
+        print(f"Epoch {epoch}: Training...")
         sys.stdout.flush()  # 强制刷新输出缓冲区
         
         for batch_idx, (x, y) in enumerate(self.train_loader):
-            if batch_idx % 10 == 0:
-                print(f"  Batch {batch_idx}/{len(self.train_loader)}")
-                sys.stdout.flush()  # 强制刷新输出缓冲区
-                
             y = self.preprocess(x, y)
             if self.flgs.decay:
                 step = (epoch - 1) * len(self.train_loader) + batch_idx + 1
@@ -177,16 +153,6 @@ class VmfSQVAETrainer(TrainerBase):
             train_loss.append(loss["all"].item())
             acc.append(loss["acc"].item())
             perplexity.append(loss["perplexity"].item())
-            
-            # 每50个批次打印一次当前损失
-            if batch_idx % 50 == 0 and batch_idx > 0:
-                current_loss = np.mean(train_loss[-50:])
-                current_acc = np.mean(acc[-50:])
-                current_perplexity = np.mean(perplexity[-50:])
-                print(f"  Batch {batch_idx}/{len(self.train_loader)}, "
-                      f"Loss: {current_loss:.4f}, Acc: {current_acc:.4f}, "
-                      f"Perplexity: {current_perplexity:.4f}")
-                sys.stdout.flush()  # 强制刷新输出缓冲区
 
         result = {}
         result["loss"] = np.asarray(train_loss).mean(0)
@@ -198,7 +164,7 @@ class VmfSQVAETrainer(TrainerBase):
         return result
     
     def _test(self, mode="val"):
-        print(f"Starting {mode} evaluation...")
+        print(f"Epoch evaluation ({mode})...")
         sys.stdout.flush()  # 强制刷新输出缓冲区
         _ = self._test_sub(False)
         result = self._test_sub(True, mode)
@@ -215,15 +181,9 @@ class VmfSQVAETrainer(TrainerBase):
         elif mode == "test":
             data_loader = self.test_loader
         start_time = time.time()
-        print(f"Evaluating with {'deterministic' if flg_quant_det else 'stochastic'} quantization...")
-        sys.stdout.flush()  # 强制刷新输出缓冲区
         
         with torch.no_grad():
             for batch_idx, (x, y) in enumerate(data_loader):
-                if batch_idx % 10 == 0:
-                    print(f"  Eval batch {batch_idx}/{len(data_loader)}")
-                    sys.stdout.flush()  # 强制刷新输出缓冲区
-                    
                 y = self.preprocess(x, y)
                 x_reconst, _, loss = self.model(y, flg_quant_det=flg_quant_det)
                 
@@ -252,7 +212,7 @@ class VmfSQVAETrainer(TrainerBase):
         return result
     
     def generate_reconstructions(self, filename, nrows=4, ncols=8):
-        print(f"Generating reconstructions to {filename}...")
+        print(f"Generating reconstructions...")
         sys.stdout.flush()  # 强制刷新输出缓冲区
         self._generate_reconstructions_discrete(filename, nrows=nrows, ncols=ncols)
     

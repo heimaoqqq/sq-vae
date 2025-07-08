@@ -22,11 +22,21 @@ class MicroDopplerDataset(Dataset):
         self.transform = transform
         self.resize = resize
         
-        # 获取所有ID文件夹
+        # 获取所有ID文件夹并按数字排序
         self.folders = []
-        for folder in sorted(os.listdir(root_dir)):
+        folder_ids = []
+        for folder in os.listdir(root_dir):
             if folder.startswith('ID_') and os.path.isdir(os.path.join(root_dir, folder)):
-                self.folders.append(folder)
+                try:
+                    # 提取ID数字部分并转换为整数
+                    id_num = int(folder.split('_')[1])
+                    folder_ids.append((id_num, folder))
+                except ValueError:
+                    continue
+        
+        # 按ID数字大小排序
+        folder_ids.sort()
+        self.folders = [folder for _, folder in folder_ids]
         
         # 创建ID到标签的映射
         self.id_to_label = {folder: idx for idx, folder in enumerate(self.folders)}
