@@ -63,6 +63,9 @@ class GaussianVectorQuantizer(VectorQuantizer):
         probabilities = torch.softmax(logit, dim=-1)
         log_probabilities = torch.log_softmax(logit, dim=-1)
         
+        # 保存原始形状用于后续处理
+        original_shape = z_from_encoder.shape
+        
         # Quantization
         if flg_train:
             encodings = gumbel_softmax_sample(logit, self.temperature)
@@ -159,6 +162,17 @@ class GaussianVectorQuantizer(VectorQuantizer):
             
         z_to_decoder = z_quantized.permute(0, 3, 1, 2).contiguous()
         
+        # 检查z_to_decoder与z_from_encoder形状是否匹配，如果不匹配，调整大小
+        if z_to_decoder.shape != original_shape:
+            print(f"Warning: Shape mismatch between encoder output {original_shape} and decoder input {z_to_decoder.shape}")
+            # 使用插值调整z_to_decoder的形状以匹配z_from_encoder
+            z_to_decoder = F.interpolate(
+                z_to_decoder, 
+                size=(original_shape[2], original_shape[3]),
+                mode='bilinear', 
+                align_corners=False
+            )
+        
         # Latent loss
         kld_discrete = torch.sum(probabilities * log_probabilities, dim=(0,1)) / bs
         kld_continuous = self._calc_distance_bw_enc_dec(z_from_encoder, z_to_decoder, 0.5 * precision_q).mean()
@@ -238,6 +252,18 @@ class GaussianVectorQuantizer(VectorQuantizer):
         return distances
         
     def _calc_distance_bw_enc_dec(self, x1, x2, weight):
+        # 检查x1和x2的形状是否匹配
+        if x1.shape != x2.shape:
+            # 如果形状不匹配，对weight进行插值调整
+            if isinstance(weight, torch.Tensor) and weight.dim() > 1:
+                # 如果weight是多维张量，也需要调整其形状
+                weight = F.interpolate(
+                    weight,
+                    size=(x1.shape[2], x1.shape[3]),
+                    mode='bilinear',
+                    align_corners=False
+                )
+        
         return torch.sum((x1-x2)**2 * weight, dim=(1,2,3))
     
 
