@@ -5,6 +5,7 @@ from torch import nn
 import matplotlib.pyplot as plt
 
 from model import GaussianSQVAE, VmfSQVAE
+from model_enhanced import EnhancedGaussianSQVAE
 from util import *
 
 class TrainerBase(nn.Module):
