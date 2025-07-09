@@ -94,7 +94,10 @@ class GaussianVectorQuantizer(VectorQuantizer):
         if self.param_var_q == "gaussian_1":
             distances = weight * calc_distance(z_from_encoder, codebook, self.dim_dict)
         elif self.param_var_q == "gaussian_2":
-            weight = weight.tile(1, 1, 8, 8).view(-1,1)
+            # 获取实际特征图大小
+            bs, width, height, dim_z = z_from_encoder.shape
+            # 动态调整weight的大小以匹配特征图
+            weight = weight.tile(1, 1, width, height).view(-1,1)
             distances = weight * calc_distance(z_from_encoder, codebook, self.dim_dict)
         elif self.param_var_q == "gaussian_3":
             weight = weight.view(-1,1)
