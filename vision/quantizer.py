@@ -94,36 +94,40 @@ class GaussianVectorQuantizer(VectorQuantizer):
         if self.param_var_q == "gaussian_1":
             distances = weight * calc_distance(z_from_encoder, codebook, self.dim_dict)
         elif self.param_var_q == "gaussian_2":
-            # 获取实际特征图大小
+            # 全局单一方差
             bs, width, height, dim_z = z_from_encoder.shape
-            # 动态调整weight的大小以匹配特征图
-            weight = weight.tile(1, 1, width, height).view(-1,1)
-            distances = weight * calc_distance(z_from_encoder, codebook, self.dim_dict)
+            weight_flat = weight.view(-1, 1)  # 确保维度正确 [bs*1*1*1, 1]
+            distances = weight_flat * calc_distance(z_from_encoder, codebook, self.dim_dict)
         elif self.param_var_q == "gaussian_3":
-            # 在gaussian_3中，权重是在通道维度上计算均值
-            # 从错误信息可以看出，weight的形状为[bs, 1, width, height]
-            # 而不是我们之前假设的[bs, 1, 1, 1]
+            # 位置独立方差模式
             bs, width, height, dim_z = z_from_encoder.shape
+            total_elements = bs * width * height
             
-            # 将权重从[bs, 1, width, height]转换为[bs*width*height, 1]
-            # 首先将通道维度放到最后
+            # 调整weight的形状以匹配z_from_encoder的元素数量
+            # weight形状为[bs, 1, width, height]，需要变换为[bs*width*height, 1]
             weight_permuted = weight.permute(0, 2, 3, 1).contiguous()  # [bs, width, height, 1]
-            weight_flat = weight_permuted.view(-1, 1)  # [bs*width*height, 1]
+            
+            # 确保weight_flat的第一维大小与z_from_encoder_flat相同
+            weight_flat = weight_permuted.reshape(total_elements, 1)  # [bs*width*height, 1]
             
             # 计算z_continuous_flat
-            z_continuous_flat = z_from_encoder.view(-1, self.dim_dict)
+            z_continuous_flat = z_from_encoder.reshape(total_elements, self.dim_dict)
             
             # 计算距离
-            z_sq = torch.sum(z_continuous_flat**2, dim=1, keepdim=True)
-            c_sq = torch.sum(codebook**2, dim=1)
-            z_c = torch.matmul(z_continuous_flat, codebook.t())
+            z_sq = torch.sum(z_continuous_flat**2, dim=1, keepdim=True)  # [total_elements, 1]
+            c_sq = torch.sum(codebook**2, dim=1)  # [size_dict]
+            z_c = torch.matmul(z_continuous_flat, codebook.t())  # [total_elements, size_dict]
+            
+            # 确保weight_flat的大小与z_sq相同，以便能够正确广播
+            assert weight_flat.shape[0] == z_sq.shape[0], f"Weight shape {weight_flat.shape} != z_sq shape {z_sq.shape}"
+            
             distances = weight_flat * (z_sq + c_sq - 2 * z_c)
         elif self.param_var_q == "gaussian_4":
-            # 在gaussian_4中，权重直接使用网络预测的每个位置的方差
-            # 我们需要将z_from_encoder和权重重塑为适当的形状进行计算
+            # 独立元素方差
             bs, width, height, dim_z = z_from_encoder.shape
             z_from_encoder_flat = z_from_encoder.reshape(-1, self.dim_dict)
-            # 将权重从[bs, dim_z, width, height]变形为[bs*width*height, dim_z]
+            
+            # 将权重从[bs, dim_z, width, height]变形为与z_from_encoder_flat兼容的形状
             weight = weight.permute(0, 2, 3, 1).contiguous().reshape(-1, self.dim_dict)
             
             # 计算每个位置的距离，考虑每个维度的权重
