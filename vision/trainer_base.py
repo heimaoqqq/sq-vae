@@ -49,6 +49,10 @@ class TrainerBase(nn.Module):
         model_instance = self.model_class(self.cfgs, self.flgs).cuda()
         self.model = nn.DataParallel(model_instance)
         
+        # 设置梯度裁剪参数，提高训练稳定性
+        self.use_gradient_clip = True
+        self.gradient_clip_value = 1.0  # 裁剪阈值，可以调整
+        
         # 创建优化器
         self.optimizer = torch.optim.Adam(
             self.model.parameters(), lr=self.lr, amsgrad=False)

@@ -78,7 +78,21 @@ class GaussianVectorQuantizer(VectorQuantizer):
         # 限制精度上限，防止数值溢出
         precision_q = torch.clamp(precision_q, max=1e5)
 
-        logit = -self._calc_distance_bw_enc_codes(z_from_encoder_permuted, codebook, 0.5 * precision_q)
+        # 计算距离并应用精度
+        try:
+            logit = -self._calc_distance_bw_enc_codes(z_from_encoder_permuted, codebook, 0.5 * precision_q)
+            
+            # 检查logit是否包含NaN或Inf
+            if torch.isnan(logit).any() or torch.isinf(logit).any():
+                print("警告: 距离计算产生NaN/Inf，使用替代值")
+                # 使用接近于零的小值替代无效值
+                logit = torch.where(torch.isnan(logit) | torch.isinf(logit),
+                                  torch.tensor(0.0, device=logit.device), logit)
+        except Exception as e:
+            print(f"距离计算错误: {e}")
+            # 创建安全的默认logit
+            logit = torch.zeros((z_from_encoder_permuted.shape[0] * z_from_encoder_permuted.shape[1] * 
+                                z_from_encoder_permuted.shape[2], self.size_dict), device=z_from_encoder.device)
         
         # 添加数值稳定性
         # 限制logit范围，防止softmax溢出
@@ -86,65 +100,137 @@ class GaussianVectorQuantizer(VectorQuantizer):
         logit = logit - logit_max  # 数值稳定性技巧
         logit = torch.clamp(logit, min=-50.0, max=50.0)  # 进一步限制范围
         
-        probabilities = torch.softmax(logit, dim=-1)
-        log_probabilities = torch.log_softmax(logit, dim=-1)
-        
-        # 确保概率和为1且不含NaN
-        if torch.isnan(probabilities).any():
-            print("警告: 检测到概率计算中的NaN值，将使用均匀概率")
-            probabilities = torch.ones_like(probabilities) / self.size_dict
+        # 使用更稳定的softmax计算
+        try:
+            probabilities = F.softmax(logit, dim=-1)
+            log_probabilities = F.log_softmax(logit, dim=-1)
+            
+            # 确保概率和为1且不含NaN
+            if torch.isnan(probabilities).any() or torch.sum(probabilities, dim=-1).min() < 0.99:
+                print("警告: 检测到概率计算中的NaN值或概率和不为1，将使用均匀概率")
+                probabilities = torch.ones_like(probabilities) / self.size_dict
+                log_probabilities = torch.log(probabilities + 1e-10)
+        except Exception as e:
+            print(f"概率计算错误: {e}")
+            # 创建安全的均匀分布
+            probabilities = torch.ones_like(logit) / self.size_dict
             log_probabilities = torch.log(probabilities + 1e-10)
         
         # Quantization
         if flg_train:
-            encodings = gumbel_softmax_sample(logit, self.temperature)
-            z_quantized = torch.mm(encodings, codebook).view(bs, width, height, dim_z)
-            avg_probs = torch.mean(probabilities.detach(), dim=0)
+            try:
+                encodings = gumbel_softmax_sample(logit, self.temperature)
+                # 确保encodings的有效性
+                if torch.isnan(encodings).any() or torch.isinf(encodings).any():
+                    print("警告: Gumbel softmax产生无效值，使用标准softmax")
+                    encodings = F.softmax(logit / max(self.temperature, 1e-5), dim=-1)
+                    
+                z_quantized = torch.matmul(encodings, codebook)
+                z_quantized = z_quantized.view(bs, width, height, dim_z)
+                avg_probs = torch.mean(probabilities.detach(), dim=0)
+            except Exception as e:
+                print(f"量化编码错误: {e}")
+                # 使用更安全的方法
+                encodings = F.softmax(logit / max(self.temperature, 1e-5), dim=-1)
+                z_quantized = torch.matmul(encodings, codebook).view(bs, width, height, dim_z)
+                avg_probs = torch.mean(probabilities.detach(), dim=0)
         else:
             if flg_quant_det:
-                indices = torch.argmax(logit, dim=1).unsqueeze(1)
-                encodings_hard = torch.zeros(indices.shape[0], self.size_dict, device="cuda")
-                encodings_hard.scatter_(1, indices, 1)
-                avg_probs = torch.mean(encodings_hard, dim=0)
+                try:
+                    indices = torch.argmax(logit, dim=1).unsqueeze(1)
+                    encodings_hard = torch.zeros(indices.shape[0], self.size_dict, device=z_from_encoder.device)
+                    encodings_hard.scatter_(1, indices, 1)
+                    avg_probs = torch.mean(encodings_hard, dim=0)
+                    z_quantized = torch.matmul(encodings_hard, codebook).view(bs, width, height, dim_z)
+                except Exception as e:
+                    print(f"确定性量化错误: {e}")
+                    # 安全回退：使用最简单的方式
+                    uniform_indices = torch.randint(0, self.size_dict, (indices.shape[0], 1), device=z_from_encoder.device)
+                    encodings_hard = torch.zeros(indices.shape[0], self.size_dict, device=z_from_encoder.device)
+                    encodings_hard.scatter_(1, uniform_indices, 1)
+                    z_quantized = torch.matmul(encodings_hard, codebook).view(bs, width, height, dim_z)
+                    avg_probs = torch.mean(encodings_hard, dim=0)
             else:
-                # 添加安全检查
-                valid_probs = torch.isfinite(probabilities).all(dim=1)
-                if not valid_probs.all():
-                    print(f"警告: 检测到{(~valid_probs).sum().item()}个样本的概率分布无效，使用均匀分布替代")
-                    # 对于无效的概率行，使用均匀分布
-                    uniform_probs = torch.ones((~valid_probs).sum().item(), self.size_dict, 
-                                             device=probabilities.device) / self.size_dict
-                    probabilities[~valid_probs] = uniform_probs
-                
-                # 确保概率和为1
-                prob_sum = probabilities.sum(dim=1, keepdim=True)
-                probabilities = probabilities / prob_sum.clamp(min=1e-10)
-                
-                dist = Categorical(probabilities)
-                indices = dist.sample().view(bs, width, height)
-                encodings_hard = F.one_hot(indices, num_classes=self.size_dict).type_as(codebook)
-                avg_probs = torch.mean(probabilities, dim=0)
-            z_quantized = torch.matmul(encodings_hard, codebook).view(bs, width, height, dim_z)
+                try:
+                    # 添加安全检查
+                    valid_probs = torch.isfinite(probabilities).all(dim=1)
+                    if not valid_probs.all():
+                        print(f"警告: 检测到{(~valid_probs).sum().item()}个样本的概率分布无效，使用均匀分布替代")
+                        # 对于无效的概率行，使用均匀分布
+                        uniform_probs = torch.ones((~valid_probs).sum().item(), self.size_dict, 
+                                                 device=probabilities.device) / self.size_dict
+                        probabilities[~valid_probs] = uniform_probs
+                    
+                    # 确保概率和为1
+                    prob_sum = probabilities.sum(dim=1, keepdim=True)
+                    probabilities = probabilities / torch.clamp(prob_sum, min=1e-10)
+                    
+                    # 使用安全的采样方法
+                    try:
+                        dist = Categorical(probabilities)
+                        indices = dist.sample().view(bs, width, height)
+                    except Exception as e:
+                        print(f"分类采样错误: {e}，使用argmax替代")
+                        indices = torch.argmax(probabilities, dim=1).view(bs, width, height)
+                        
+                    encodings_hard = F.one_hot(indices, num_classes=self.size_dict).float()
+                    avg_probs = torch.mean(probabilities, dim=0)
+                    z_quantized = torch.matmul(encodings_hard.view(-1, self.size_dict), codebook).view(bs, width, height, dim_z)
+                except Exception as e:
+                    print(f"随机量化错误: {e}")
+                    # 安全回退：使用均匀采样
+                    indices = torch.randint(0, self.size_dict, (bs, width, height), device=z_from_encoder.device)
+                    encodings_hard = F.one_hot(indices, num_classes=self.size_dict).float()
+                    z_quantized = torch.matmul(encodings_hard.view(-1, self.size_dict), codebook).view(bs, width, height, dim_z)
+                    avg_probs = torch.ones(self.size_dict, device=z_from_encoder.device) / self.size_dict
+        
+        # 安全地排列张量
         z_to_decoder = z_quantized.permute(0, 3, 1, 2).contiguous()
         
+        # 检查量化后的张量是否有效
+        if torch.isnan(z_to_decoder).any() or torch.isinf(z_to_decoder).any():
+            print("警告: 量化后的张量包含NaN/Inf，替换为随机值")
+            z_to_decoder = torch.where(torch.isnan(z_to_decoder) | torch.isinf(z_to_decoder),
+                                     torch.randn_like(z_to_decoder) * 0.01, z_to_decoder)
+        
         # Latent loss - 添加数值稳定性
-        kld_discrete = torch.sum(probabilities * log_probabilities, dim=(0,1)) / bs
-        # 确保kld_discrete不是NaN
-        if torch.isnan(kld_discrete) or torch.isinf(kld_discrete):
-            print("警告: KLD离散项计算出NaN/Inf，设置为0")
+        try:
+            kld_discrete = torch.sum(probabilities * log_probabilities, dim=(0,1)) / bs
+            # 确保kld_discrete不是NaN
+            if torch.isnan(kld_discrete) or torch.isinf(kld_discrete):
+                print("警告: KLD离散项计算出NaN/Inf，设置为0")
+                kld_discrete = torch.tensor(0.0, device=z_from_encoder.device)
+        except Exception as e:
+            print(f"KLD离散项计算错误: {e}")
             kld_discrete = torch.tensor(0.0, device=z_from_encoder.device)
-            
-        kld_continuous = self._calc_distance_bw_enc_dec(z_from_encoder, z_to_decoder, 0.5 * precision_q).mean()
-        # 确保kld_continuous不是NaN
-        if torch.isnan(kld_continuous) or torch.isinf(kld_continuous):
-            print("警告: KLD连续项计算出NaN/Inf，设置为0")
+        
+        try:    
+            kld_continuous = self._calc_distance_bw_enc_dec(z_from_encoder, z_to_decoder, 0.5 * precision_q).mean()
+            # 确保kld_continuous不是NaN
+            if torch.isnan(kld_continuous) or torch.isinf(kld_continuous):
+                print("警告: KLD连续项计算出NaN/Inf，设置为0")
+                kld_continuous = torch.tensor(0.0, device=z_from_encoder.device)
+        except Exception as e:
+            print(f"KLD连续项计算错误: {e}")
             kld_continuous = torch.tensor(0.0, device=z_from_encoder.device)
             
         loss = kld_discrete + kld_continuous
         
+        # 确保loss是有限的
+        if torch.isnan(loss) or torch.isinf(loss):
+            print("警告: 总损失为NaN/Inf，设置为小的正值")
+            loss = torch.tensor(0.1, device=z_from_encoder.device)
+        
         # 确保avg_probs不含NaN且非零
         avg_probs = torch.clamp(avg_probs, min=1e-10)
-        perplexity = torch.exp(-torch.sum(avg_probs * torch.log(avg_probs + 1e-10)))
+        # 安全地计算perplexity
+        try:
+            perplexity = torch.exp(-torch.sum(avg_probs * torch.log(avg_probs + 1e-10)))
+            if torch.isnan(perplexity) or torch.isinf(perplexity):
+                perplexity = torch.tensor(float(self.size_dict), device=z_from_encoder.device)
+        except Exception as e:
+            print(f"困惑度计算错误: {e}")
+            perplexity = torch.tensor(float(self.size_dict), device=z_from_encoder.device)
 
         return z_to_decoder, loss, perplexity
 

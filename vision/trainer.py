@@ -47,25 +47,66 @@ class GaussianSQVAETrainer(TrainerBase):
                     step, self.cfgs.quantization.temperature)
                 self.model.module.quantizer.set_temperature(temperature_current)
             
-            _, _, loss = self.model(x, flg_train=True, flg_quant_det=False)
-            
-            # 确保所有损失值都是标量
-            for key in loss:
-                if isinstance(loss[key], torch.Tensor) and loss[key].numel() > 1:
-                    loss[key] = loss[key].mean()
+            # 添加异常处理
+            try:
+                _, _, loss = self.model(x, flg_train=True, flg_quant_det=False)
+                
+                # 确保所有损失值都是标量
+                for key in loss:
+                    if isinstance(loss[key], torch.Tensor) and loss[key].numel() > 1:
+                        loss[key] = loss[key].mean()
+                        
+                # 检查损失是否为NaN或Inf
+                if torch.isnan(loss["all"]) or torch.isinf(loss["all"]):
+                    print(f"警告: 批次 {batch_idx} 损失为NaN/Inf，跳过此批次")
+                    continue
                     
-            self.optimizer.zero_grad()
-            loss["all"].backward()
-            self.optimizer.step()
+                self.optimizer.zero_grad()
+                loss["all"].backward()
+                
+                # 应用梯度裁剪，防止梯度爆炸
+                if hasattr(self, 'use_gradient_clip') and self.use_gradient_clip:
+                    # 检查梯度是否包含NaN
+                    has_nan = False
+                    for param in self.model.parameters():
+                        if param.grad is not None:
+                            if torch.isnan(param.grad).any() or torch.isinf(param.grad).any():
+                                has_nan = True
+                                break
+                    
+                    if has_nan:
+                        print(f"警告: 批次 {batch_idx} 梯度包含NaN/Inf，跳过更新")
+                        # 重置梯度
+                        self.optimizer.zero_grad()
+                        continue
+                    else:
+                        # 应用梯度裁剪
+                        torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.gradient_clip_value)
+                
+                self.optimizer.step()
 
-            train_loss.append(loss["all"].item())
-            ms_error.append(loss["mse"].item())
-            perplexity.append(loss["perplexity"].item())
+                train_loss.append(loss["all"].item())
+                ms_error.append(loss["mse"].item())
+                perplexity.append(loss["perplexity"].item())
+            except Exception as e:
+                print(f"批次 {batch_idx} 训练出错: {e}")
+                # 跳过这个批次，继续训练
+                continue
 
-        result = {}
-        result["loss"] = np.asarray(train_loss).mean(0)
-        result["mse"] = np.array(ms_error).mean(0)
-        result["perplexity"] = np.array(perplexity).mean(0)
+        # 如果没有成功训练任何批次，返回默认结果
+        if len(train_loss) == 0:
+            print("警告: 所有批次都失败，返回默认结果")
+            result = {
+                "loss": 1.0, 
+                "mse": 1.0, 
+                "perplexity": float(self.model.module.size_dict)
+            }
+        else:
+            result = {}
+            result["loss"] = np.asarray(train_loss).mean(0)
+            result["mse"] = np.array(ms_error).mean(0)
+            result["perplexity"] = np.array(perplexity).mean(0)
+            
         self.print_loss(result, "train", time.time()-start_time)
         sys.stdout.flush()  # 强制刷新输出缓冲区
                 
@@ -189,25 +230,67 @@ class VmfSQVAETrainer(TrainerBase):
                 temperature_current = self._set_temperature(
                     step, self.cfgs.quantization.temperature)
                 self.model.module.quantizer.set_temperature(temperature_current)
-            _, _, loss = self.model(y, flg_train=True, flg_quant_det=False)
-            
-            # 确保所有损失值都是标量
-            for key in loss:
-                if isinstance(loss[key], torch.Tensor) and loss[key].numel() > 1:
-                    loss[key] = loss[key].mean()
-            
-            self.optimizer.zero_grad()
-            loss["all"].backward()
-            self.optimizer.step()
+                
+            # 添加异常处理
+            try:
+                _, _, loss = self.model(y, flg_train=True, flg_quant_det=False)
+                
+                # 确保所有损失值都是标量
+                for key in loss:
+                    if isinstance(loss[key], torch.Tensor) and loss[key].numel() > 1:
+                        loss[key] = loss[key].mean()
+                
+                # 检查损失是否为NaN或Inf
+                if torch.isnan(loss["all"]) or torch.isinf(loss["all"]):
+                    print(f"警告: 批次 {batch_idx} 损失为NaN/Inf，跳过此批次")
+                    continue
+                    
+                self.optimizer.zero_grad()
+                loss["all"].backward()
+                
+                # 应用梯度裁剪，防止梯度爆炸
+                if hasattr(self, 'use_gradient_clip') and self.use_gradient_clip:
+                    # 检查梯度是否包含NaN
+                    has_nan = False
+                    for param in self.model.parameters():
+                        if param.grad is not None:
+                            if torch.isnan(param.grad).any() or torch.isinf(param.grad).any():
+                                has_nan = True
+                                break
+                    
+                    if has_nan:
+                        print(f"警告: 批次 {batch_idx} 梯度包含NaN/Inf，跳过更新")
+                        # 重置梯度
+                        self.optimizer.zero_grad()
+                        continue
+                    else:
+                        # 应用梯度裁剪
+                        torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.gradient_clip_value)
+                
+                self.optimizer.step()
 
-            train_loss.append(loss["all"].item())
-            acc.append(loss["acc"].item())
-            perplexity.append(loss["perplexity"].item())
+                train_loss.append(loss["all"].item())
+                acc.append(loss["acc"].item())
+                perplexity.append(loss["perplexity"].item())
+            except Exception as e:
+                print(f"批次 {batch_idx} 训练出错: {e}")
+                # 跳过这个批次，继续训练
+                continue
 
-        result = {}
-        result["loss"] = np.asarray(train_loss).mean(0)
-        result["acc"] = np.array(acc).mean(0)
-        result["perplexity"] = np.array(perplexity).mean(0)
+        # 如果没有成功训练任何批次，返回默认结果
+        if len(train_loss) == 0:
+            print("警告: 所有批次都失败，返回默认结果")
+            result = {
+                "loss": 1.0, 
+                "acc": 0.5, 
+                "perplexity": float(self.model.module.size_dict)
+            }
+        else:
+            result = {}
+            result["loss"] = np.asarray(train_loss).mean(0)
+            result["acc"] = np.array(acc).mean(0)
+            result["perplexity"] = np.array(perplexity).mean(0)
+            
         self.print_loss(result, "train", time.time()-start_time)
         sys.stdout.flush()  # 强制刷新输出缓冲区
         

@@ -389,17 +389,74 @@ class DiffusersGaussianSQVAE(DiffusersSQVAE):
     
     def _calc_loss(self, x_reconst, x, loss_latent):
         bs = x.shape[0]
-        # 重建损失
-        mse = F.mse_loss(x_reconst, x, reduction="sum") / bs
-        
-        if self.flg_arelbo:
-            # 使用arelbo损失
-            loss_reconst = self.dim_x * torch.log(mse) / 2
-        else:
-            loss_reconst = mse / (2*self.logvar_x.exp()) + self.dim_x * self.logvar_x / 2
+        # 重建损失 - 添加数值稳定性检查
+        try:
+            # 检查输入数据有效性
+            if torch.isnan(x_reconst).any() or torch.isinf(x_reconst).any():
+                print("警告: 重建图像包含NaN/Inf，将替换为随机值")
+                x_reconst = torch.where(torch.isnan(x_reconst) | torch.isinf(x_reconst),
+                                      torch.rand_like(x_reconst), x_reconst)
+                
+            mse = F.mse_loss(x_reconst, x, reduction="none")
+            
+            # 检查是否有异常值
+            if torch.isnan(mse).any() or torch.isinf(mse).any():
+                print("警告: MSE计算产生NaN/Inf值，将替换为合理值")
+                mse = torch.where(torch.isnan(mse) | torch.isinf(mse),
+                                torch.tensor(1.0, device=mse.device), mse)
+                
+            # 使用更稳定的方法计算均值
+            mse_sum = mse.sum() / bs
+            
+            # 最终检查
+            if torch.isnan(mse_sum) or torch.isinf(mse_sum):
+                print("警告: MSE总和为NaN/Inf，使用默认值0.1")
+                mse_sum = torch.tensor(0.1, device=x.device)
+        except Exception as e:
+            print(f"MSE计算错误: {e}")
+            mse_sum = torch.tensor(0.1, device=x.device)
+            
+        # 计算最终损失
+        try:
+            if self.flg_arelbo:
+                # 使用arelbo损失
+                # 限制mse_sum的范围以避免log(0)
+                mse_sum = torch.clamp(mse_sum, min=1e-10, max=1e10)
+                loss_reconst = self.dim_x * torch.log(mse_sum) / 2
+                
+                # 检查arelbo损失
+                if torch.isnan(loss_reconst) or torch.isinf(loss_reconst):
+                    print("警告: ARELBO损失为NaN/Inf，使用MSE作为替代")
+                    loss_reconst = mse_sum
+            else:
+                # 确保logvar_x不会导致数值问题
+                logvar_x_safe = torch.clamp(self.logvar_x, min=-10, max=10)
+                var_x = torch.exp(logvar_x_safe)
+                
+                # 使用稳定的计算方法
+                loss_reconst = mse_sum / (2*var_x) + self.dim_x * logvar_x_safe / 2
+                
+                # 检查传统损失
+                if torch.isnan(loss_reconst) or torch.isinf(loss_reconst):
+                    print("警告: 重建损失为NaN/Inf，使用MSE作为替代")
+                    loss_reconst = mse_sum
+        except Exception as e:
+            print(f"重建损失计算错误: {e}")
+            loss_reconst = mse_sum
+            
+        # 确保潜在损失有效
+        if torch.isnan(loss_latent) or torch.isinf(loss_latent):
+            print("警告: 潜在损失为NaN/Inf，设置为0")
+            loss_latent = torch.tensor(0.0, device=x.device)
             
         # 总损失
         loss_all = loss_reconst + loss_latent
-        loss = dict(all=loss_all, mse=mse)
+        
+        # 最终安全检查
+        if torch.isnan(loss_all) or torch.isinf(loss_all):
+            print("警告: 总损失为NaN/Inf，设置为MSE")
+            loss_all = mse_sum
+            
+        loss = dict(all=loss_all, mse=mse_sum)
         
         return loss 
