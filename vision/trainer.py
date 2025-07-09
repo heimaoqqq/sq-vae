@@ -78,6 +78,9 @@ class GaussianSQVAETrainer(TrainerBase):
         test_loss = []
         ms_error = []
         perplexity = []
+        perceptual_loss = []
+        spectral_loss = []
+        
         if mode == "validation":
             data_loader = self.val_loader
         elif mode == "test":
@@ -94,13 +97,28 @@ class GaussianSQVAETrainer(TrainerBase):
                     if isinstance(loss[key], torch.Tensor) and loss[key].numel() > 1:
                         loss[key] = loss[key].mean()
                 
+                # 收集损失值，转换为标量
                 test_loss.append(loss["all"].item())
                 ms_error.append(loss["mse"].item())
                 perplexity.append(loss["perplexity"].item())
+                
+                # 记录额外损失项（如果存在），确保转换为标量
+                if "perceptual" in loss:
+                    perceptual_loss.append(loss["perceptual"].item() if torch.is_tensor(loss["perceptual"]) else loss["perceptual"])
+                if "spectral" in loss:
+                    spectral_loss.append(loss["spectral"].item() if torch.is_tensor(loss["spectral"]) else loss["spectral"])
+                    
         result = {}
         result["loss"] = np.asarray(test_loss).mean(0)
         result["mse"] = np.array(ms_error).mean(0)
         result["perplexity"] = np.array(perplexity).mean(0)
+        
+        # 添加额外损失项到结果
+        if perceptual_loss:
+            result["perceptual"] = np.array(perceptual_loss).mean(0)
+        if spectral_loss:
+            result["spectral"] = np.array(spectral_loss).mean(0)
+            
         self.print_loss(result, mode, time.time()-start_time)
         sys.stdout.flush()  # 强制刷新输出缓冲区
         
@@ -182,15 +200,16 @@ class EnhancedGaussianSQVAETrainer(GaussianSQVAETrainer):
             loss["all"].backward()
             self.optimizer.step()
 
+            # 收集损失值，转换为标量
             train_loss.append(loss["all"].item())
             ms_error.append(loss["mse"].item())
             perplexity.append(loss["perplexity"].item())
             
             # 记录额外损失项（如果存在）
             if "perceptual" in loss:
-                perceptual_loss.append(loss["perceptual"])
+                perceptual_loss.append(loss["perceptual"].item() if torch.is_tensor(loss["perceptual"]) else loss["perceptual"])
             if "spectral" in loss:
-                spectral_loss.append(loss["spectral"])
+                spectral_loss.append(loss["spectral"].item() if torch.is_tensor(loss["spectral"]) else loss["spectral"])
                 
         result = {}
         result["loss"] = np.asarray(train_loss).mean(0)
@@ -231,15 +250,16 @@ class EnhancedGaussianSQVAETrainer(GaussianSQVAETrainer):
                     if isinstance(loss[key], torch.Tensor) and loss[key].numel() > 1:
                         loss[key] = loss[key].mean()
                 
+                # 收集损失值，转换为标量
                 test_loss.append(loss["all"].item())
                 ms_error.append(loss["mse"].item())
                 perplexity.append(loss["perplexity"].item())
                 
-                # 记录额外损失项（如果存在）
+                # 记录额外损失项（如果存在），确保转换为标量
                 if "perceptual" in loss:
-                    perceptual_loss.append(loss["perceptual"])
+                    perceptual_loss.append(loss["perceptual"].item() if torch.is_tensor(loss["perceptual"]) else loss["perceptual"])
                 if "spectral" in loss:
-                    spectral_loss.append(loss["spectral"])
+                    spectral_loss.append(loss["spectral"].item() if torch.is_tensor(loss["spectral"]) else loss["spectral"])
                     
         result = {}
         result["loss"] = np.asarray(test_loss).mean(0)
@@ -267,9 +287,13 @@ class EnhancedGaussianSQVAETrainer(GaussianSQVAETrainer):
             
         # 添加额外损失项信息（如果存在）
         if "perceptual" in result:
-            message += ", Perceptual: {:5.4f}".format(result["perceptual"])
+            # 如果是张量，先转换为标量
+            perceptual_value = result["perceptual"].item() if torch.is_tensor(result["perceptual"]) else result["perceptual"]
+            message += ", Perceptual: {:5.4f}".format(perceptual_value)
         if "spectral" in result:
-            message += ", Spectral: {:5.4f}".format(result["spectral"])
+            # 如果是张量，先转换为标量
+            spectral_value = result["spectral"].item() if torch.is_tensor(result["spectral"]) else result["spectral"]
+            message += ", Spectral: {:5.4f}".format(spectral_value)
             
         # 添加时间信息
         message += ", Time: {:5.3f} sec".format(time_interval)
@@ -281,15 +305,19 @@ class EnhancedGaussianSQVAETrainer(GaussianSQVAETrainer):
         # 调用父类方法记录基本指标
         super()._make_epoch_logger(train_result, val_result)
         
-        # 记录额外损失项
+        # 记录额外损失项，确保转换为标量
         if "perceptual" in train_result:
-            self.plots["perceptual_train"].append(train_result["perceptual"])
+            perceptual_value = train_result["perceptual"].item() if torch.is_tensor(train_result["perceptual"]) else train_result["perceptual"]
+            self.plots["perceptual_train"].append(perceptual_value)
         if "perceptual" in val_result:
-            self.plots["perceptual_val"].append(val_result["perceptual"])
+            perceptual_value = val_result["perceptual"].item() if torch.is_tensor(val_result["perceptual"]) else val_result["perceptual"]
+            self.plots["perceptual_val"].append(perceptual_value)
         if "spectral" in train_result:
-            self.plots["spectral_train"].append(train_result["spectral"])
+            spectral_value = train_result["spectral"].item() if torch.is_tensor(train_result["spectral"]) else train_result["spectral"]
+            self.plots["spectral_train"].append(spectral_value)
         if "spectral" in val_result:
-            self.plots["spectral_val"].append(val_result["spectral"])
+            spectral_value = val_result["spectral"].item() if torch.is_tensor(val_result["spectral"]) else val_result["spectral"]
+            self.plots["spectral_val"].append(spectral_value)
     
     def generate_reconstructions(self, filename, nrows=4, ncols=8, individual=False):
         print(f"Generating enhanced reconstructions...")

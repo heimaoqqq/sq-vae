@@ -73,10 +73,10 @@ class EnhancedGaussianSQVAE(EnhancedSQVAE):
         
         # 如果使用了感知损失，记录它
         if hasattr(self, 'perceptual_loss'):
-            loss['perceptual'] = p_loss.item()
+            loss['perceptual'] = p_loss  # 保持张量形式，不调用.item()
             
         # 如果使用了频谱损失，记录它
         if hasattr(self, 'spectral_loss'):
-            loss['spectral'] = s_loss.item()
+            loss['spectral'] = s_loss  # 保持张量形式，不调用.item()
 
         return loss 
