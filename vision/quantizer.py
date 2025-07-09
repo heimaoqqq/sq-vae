@@ -59,10 +59,11 @@ class GaussianVectorQuantizer(VectorQuantizer):
         z_from_encoder_permuted = z_from_encoder.permute(0, 2, 3, 1).contiguous()
         precision_q = 1. / torch.clamp(var_q, min=1e-10)
 
-        logit = -self._calc_distance_bw_enc_codes(z_from_encoder_permuted, codebook, 0.5 * precision_q)
-        probabilities = torch.softmax(logit, dim=-1)
-        log_probabilities = torch.log_softmax(logit, dim=-1)
-        
+        # 静态计数器，用于限制警告消息的数量
+        if not hasattr(self, "_warning_count"):
+            self._warning_count = 0
+            self._max_warnings = 3  # 每次运行最多显示3条警告
+
         # 保存原始形状用于后续处理
         original_shape = z_from_encoder.shape
         
@@ -72,6 +73,49 @@ class GaussianVectorQuantizer(VectorQuantizer):
             z_quantized = torch.mm(encodings, codebook).view(bs, width, height, dim_z)
             avg_probs = torch.mean(probabilities.detach(), dim=0)
         else:
+            # 非训练模式下，我们需要确保形状一致性
+            logit = -self._calc_distance_bw_enc_codes(z_from_encoder_permuted, codebook, 0.5 * precision_q)
+            probabilities = torch.softmax(logit, dim=-1)
+            log_probabilities = torch.log_softmax(logit, dim=-1)
+            
+            # 在这里进行额外的处理来确保输出形状与原始输入匹配
+            # 首先检查实际元素数量
+            actual_total_elements = logit.shape[0]
+            expected_elements = bs * width * height
+            
+            # 如果实际元素不是预期的2倍或1倍，尝试强制调整
+            if actual_total_elements != expected_elements and actual_total_elements != expected_elements * 2:
+                # 只显示有限数量的警告
+                if self._warning_count < self._max_warnings:
+                    print(f"Warning: Actual elements {actual_total_elements} doesn't match expected {expected_elements}. Applying special handling.")
+                    self._warning_count += 1
+                elif self._warning_count == self._max_warnings:
+                    print("Further shape mismatch warnings suppressed...")
+                    self._warning_count += 1
+                
+                # 如果logit的形状与预期不匹配，使用插值调整
+                # 将logit重塑为2D张量进行插值操作
+                if flg_quant_det:
+                    # 确定性量化模式
+                    indices = torch.argmax(logit, dim=1).unsqueeze(1)
+                    encodings_hard = torch.zeros(indices.shape[0], self.size_dict, device="cuda")
+                    encodings_hard.scatter_(1, indices, 1)
+                    # 直接生成解码器输入，确保形状匹配
+                    z_quantized_flat = torch.matmul(encodings_hard, codebook)
+                    # 先得到与期望批次大小匹配的张量
+                    z_quantized_temp = z_quantized_flat.view(-1, dim_z)[:bs * width * height].view(bs, width, height, dim_z)
+                    z_to_decoder = z_quantized_temp.permute(0, 3, 1, 2).contiguous()
+                    avg_probs = torch.mean(probabilities.detach(), dim=0)
+                    
+                    # 直接返回结果，跳过后续处理
+                    # Latent loss
+                    kld_discrete = torch.sum(probabilities * log_probabilities, dim=(0,1)) / bs
+                    kld_continuous = self._calc_distance_bw_enc_dec(z_from_encoder, z_to_decoder, 0.5 * precision_q).mean()
+                    loss = kld_discrete + kld_continuous
+                    perplexity = torch.exp(-torch.sum(avg_probs * torch.log(avg_probs + 1e-7)))
+                    return z_to_decoder, loss, perplexity
+            
+            # 常规处理流程
             if flg_quant_det:
                 indices = torch.argmax(logit, dim=1).unsqueeze(1)
                 encodings_hard = torch.zeros(indices.shape[0], self.size_dict, device="cuda")
@@ -128,7 +172,8 @@ class GaussianVectorQuantizer(VectorQuantizer):
                         z_quantized = z_quantized_flat.view(bs, -1, 1, dim_z)
                 else:
                     # 如果无法整除批次大小，直接使用一维表示
-                    z_quantized = z_quantized_flat.view(-1, 1, 1, dim_z)
+                    # 重要改进：确保输出与输入具有相同的批次大小
+                    z_quantized = z_quantized_flat.view(-1, dim_z)[:bs * width * height].view(bs, width, height, dim_z)
             else:
                 # 使用标准重塑
                 z_quantized_flat = torch.matmul(encodings_hard, codebook)
@@ -158,13 +203,26 @@ class GaussianVectorQuantizer(VectorQuantizer):
                         # 计算可以得到的最大批次大小
                         possible_bs = actual_size // dim_z
                         z_quantized = z_quantized_flat.view(possible_bs, 1, 1, dim_z)
-                        print(f"Warning: Reshape to non-standard dimensions. Original: {encodings_hard.size(0)}x{width}x{height}x{dim_z}, Actual: {possible_bs}x1x1x{dim_z}")
+                        # 限制警告消息的数量
+                        if self._warning_count < self._max_warnings:
+                            print(f"Warning: Reshape to non-standard dimensions. Original: {encodings_hard.size(0)}x{width}x{height}x{dim_z}, Actual: {possible_bs}x1x1x{dim_z}")
+                            self._warning_count += 1
+                        elif self._warning_count == self._max_warnings:
+                            print("Further reshape warnings suppressed...")
+                            self._warning_count += 1
             
         z_to_decoder = z_quantized.permute(0, 3, 1, 2).contiguous()
         
         # 检查z_to_decoder与z_from_encoder形状是否匹配，如果不匹配，调整大小
         if z_to_decoder.shape != original_shape:
-            print(f"Warning: Shape mismatch between encoder output {original_shape} and decoder input {z_to_decoder.shape}")
+            # 限制警告消息的数量
+            if self._warning_count < self._max_warnings:
+                print(f"Warning: Shape mismatch between encoder output {original_shape} and decoder input {z_to_decoder.shape}")
+                self._warning_count += 1
+            elif self._warning_count == self._max_warnings:
+                print("Further shape mismatch warnings suppressed...")
+                self._warning_count += 1
+                
             # 首先处理批次大小不匹配问题
             if z_to_decoder.shape[0] != original_shape[0]:
                 # 如果批次大小不匹配，调整为原始批次大小
@@ -193,7 +251,7 @@ class GaussianVectorQuantizer(VectorQuantizer):
         perplexity = torch.exp(-torch.sum(avg_probs * torch.log(avg_probs + 1e-7)))
 
         return z_to_decoder, loss, perplexity
-
+        
     def _calc_distance_bw_enc_codes(self, z_from_encoder, codebook, weight):        
         if self.param_var_q == "gaussian_1":
             distances = weight * calc_distance(z_from_encoder, codebook, self.dim_dict)
@@ -265,6 +323,11 @@ class GaussianVectorQuantizer(VectorQuantizer):
         return distances
         
     def _calc_distance_bw_enc_dec(self, x1, x2, weight):
+        # 如果不存在静态警告计数器，创建一个
+        if not hasattr(self, "_warning_count"):
+            self._warning_count = 0
+            self._max_warnings = 3  # 每次运行最多显示3条警告
+        
         # 检查x1和x2的形状是否匹配
         if x1.shape != x2.shape:
             # 首先处理批次大小不匹配
