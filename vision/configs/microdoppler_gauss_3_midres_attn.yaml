@@ -20,5 +20,5 @@ train:
   epoch_max: 100
 
 quantization:
-  size_dict: 512  # 设置码本大小为512
+  size_dict: 2048  # 设置码本大小为512
   dim_dict: 64  # 编码维度 
