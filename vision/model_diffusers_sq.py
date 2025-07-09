@@ -8,12 +8,31 @@ from quantizer import GaussianVectorQuantizer, VmfVectorQuantizer
 
 # 导入diffusers的组件
 try:
+    # 尝试直接导入diffusers组件
     from diffusers.models.vae import Encoder, Decoder, DiagonalGaussianDistribution
     from diffusers.models.resnet import Downsample2D, ResnetBlock2D, Upsample2D
     DIFFUSERS_AVAILABLE = True
-except ImportError:
-    print("Diffusers库未安装，将使用自定义实现")
-    DIFFUSERS_AVAILABLE = False
+    print("成功导入diffusers库组件")
+except ImportError as e:
+    print(f"Diffusers库导入错误: {e}")
+    
+    # 尝试使用pip安装diffusers（适用于Kaggle环境）
+    try:
+        import sys
+        import subprocess
+        print("尝试安装diffusers库...")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "diffusers", "--quiet"])
+        print("diffusers库安装完成，尝试再次导入...")
+        
+        # 再次尝试导入
+        from diffusers.models.vae import Encoder, Decoder, DiagonalGaussianDistribution
+        from diffusers.models.resnet import Downsample2D, ResnetBlock2D, Upsample2D
+        DIFFUSERS_AVAILABLE = True
+        print("成功导入diffusers库组件")
+    except Exception as install_error:
+        print(f"无法安装或导入diffusers库: {install_error}")
+        DIFFUSERS_AVAILABLE = False
+        print("将使用自定义实现替代diffusers组件")
 
 
 class DiffusersEncoder(nn.Module):
@@ -278,12 +297,20 @@ class DiffusersSQVAE(SQVAE):
                 self.size_dict, self.dim_dict, cfgs.quantization.temperature.init, self.param_var_q)
     
     def forward(self, x, flg_train=False, flg_quant_det=True):
-        # 添加一些调试信息
-        if not hasattr(self, 'debug_info_printed'):
-            self.debug_info_printed = True
-            print(f"DiffusersSQVAE模型输入形状: {x.shape}")
-            print(f"使用量化参数: {self.param_var_q}")
-            print(f"量化器类型: {self.quantizer.__class__.__name__}")
+        # 添加全局级别调试控制
+        # 检查是否为主进程 (在分布式训练中很重要)
+        is_main_process = True
+        if hasattr(torch.distributed, 'is_initialized') and torch.distributed.is_initialized():
+            is_main_process = torch.distributed.get_rank() == 0
+        
+        # 仅在主进程中打印一次模型信息
+        if is_main_process and not hasattr(DiffusersSQVAE, '_model_info_printed'):
+            DiffusersSQVAE._model_info_printed = True
+            print("\n===== 模型信息 =====")
+            print(f"输入形状: {x.shape}")
+            print(f"量化参数: {self.param_var_q}")
+            print(f"量化器: {self.quantizer.__class__.__name__}")
+            print("===================\n")
             
         # 编码
         try:
@@ -306,11 +333,26 @@ class DiffusersSQVAE(SQVAE):
                         raise Exception(f"未定义的param_var_q: {self.param_var_q}")
                 self.param_q = (log_var_q.exp() + self.log_param_q_scalar.exp())
             
-            if not hasattr(self, 'latent_shape_printed'):
-                self.latent_shape_printed = True
-                print(f"潜在向量形状: {z_from_encoder.shape}")
+            # 仅在主进程中打印一次形状信息
+            if is_main_process and not hasattr(DiffusersSQVAE, '_shape_info_printed'):
+                DiffusersSQVAE._shape_info_printed = True
+                print("\n===== 形状信息 =====")
+                print(f"输入: {x.shape}")
+                print(f"潜在向量: {z_from_encoder.shape}")
+                
+                # 量化
+                z_quantized, loss_latent, perplexity = self.quantizer(
+                    z_from_encoder, self.param_q, self.codebook, flg_train, flg_quant_det)
+                
+                # 解码
+                x_reconst = self.decoder(z_quantized)
+                print(f"重建输出: {x_reconst.shape}")
+                print("====================\n")
+                loss = self._calc_loss(x_reconst, x, loss_latent)
+                loss["perplexity"] = perplexity
+                return x_reconst, dict(z_from_encoder=z_from_encoder, z_to_decoder=z_quantized), loss
             
-            # 量化
+            # 正常前向传播
             z_quantized, loss_latent, perplexity = self.quantizer(
                 z_from_encoder, self.param_q, self.codebook, flg_train, flg_quant_det)
             latents = dict(z_from_encoder=z_from_encoder, z_to_decoder=z_quantized)
@@ -318,10 +360,6 @@ class DiffusersSQVAE(SQVAE):
             # 解码
             x_reconst = self.decoder(z_quantized)
             
-            if not hasattr(self, 'reconst_shape_printed'):
-                self.reconst_shape_printed = True
-                print(f"重建输出形状: {x_reconst.shape}")
-
             # 损失
             loss = self._calc_loss(x_reconst, x, loss_latent)
             loss["perplexity"] = perplexity
