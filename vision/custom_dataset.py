@@ -100,6 +100,7 @@ def get_microdoppler_dataloaders(dataset_path, batch_size=32, num_workers=2,
         ])
         resize = None  # 通过transform调整大小
     else:
+        # 如果不指定大小，则保持原始大小
         transform = transforms.Compose([
             transforms.ToTensor(),
         ])

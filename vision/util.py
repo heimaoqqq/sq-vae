@@ -114,15 +114,29 @@ def get_loader(dataset, path_dataset, bs=64, n_work=2):
         val_loader = val_dataset.loader()
         test_loader = test_dataset.loader()
     elif dataset == "MicroDoppler":
-        # 使用自定义的微多普勒数据集加载器
-        train_loader, val_loader, test_loader = get_microdoppler_dataloaders(
-            path_dataset,
-            batch_size=bs,
-            num_workers=n_work,
-            image_size=(64, 64),  # 调整为模型期望的大小
-            train_ratio=0.7,
-            val_ratio=0.15
-        )
+        # 检查配置文件中的shape参数，确定是否使用高分辨率
+        # 这里我们通过检查环境变量或目录名来判断
+        current_dir = os.getcwd()
+        if "highres" in current_dir or os.environ.get("USE_HIGHRES", "0") == "1":
+            # 使用自定义的微多普勒数据集加载器 - 高分辨率版本
+            train_loader, val_loader, test_loader = get_microdoppler_dataloaders(
+                path_dataset,
+                batch_size=bs,
+                num_workers=n_work,
+                image_size=None,  # 保持原始大小
+                train_ratio=0.7,
+                val_ratio=0.15
+            )
+        else:
+            # 使用自定义的微多普勒数据集加载器 - 标准版本
+            train_loader, val_loader, test_loader = get_microdoppler_dataloaders(
+                path_dataset,
+                batch_size=bs,
+                num_workers=n_work,
+                image_size=(64, 64),  # 调整为模型期望的大小
+                train_ratio=0.7,
+                val_ratio=0.15
+            )
 
     return train_loader, val_loader, test_loader
 
