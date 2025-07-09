@@ -57,11 +57,43 @@ class GaussianVectorQuantizer(VectorQuantizer):
     def _quantize(self, z_from_encoder, var_q, codebook, flg_train=True, flg_quant_det=False):
         bs, dim_z, width, height = z_from_encoder.shape
         z_from_encoder_permuted = z_from_encoder.permute(0, 2, 3, 1).contiguous()
-        precision_q = 1. / torch.clamp(var_q, min=1e-10)
+        
+        # 添加数值稳定性检查
+        # 1. 确保var_q没有无效值
+        if torch.isnan(var_q).any() or torch.isinf(var_q).any():
+            print("警告: 检测到var_q中有NaN或Inf值，将替换为默认值")
+            var_q = torch.where(torch.isnan(var_q) | torch.isinf(var_q), 
+                               torch.tensor(1.0, device=var_q.device), var_q)
+        
+        # 2. 确保z_from_encoder没有无效值
+        if torch.isnan(z_from_encoder).any() or torch.isinf(z_from_encoder).any():
+            print("警告: 检测到z_from_encoder中有NaN或Inf值，将替换为0")
+            z_from_encoder = torch.where(torch.isnan(z_from_encoder) | torch.isinf(z_from_encoder),
+                                       torch.tensor(0.0, device=z_from_encoder.device), z_from_encoder)
+            z_from_encoder_permuted = z_from_encoder.permute(0, 2, 3, 1).contiguous()
+        
+        # 安全地计算精度，防止除以零
+        precision_q = 1. / torch.clamp(var_q, min=1e-5)
+        
+        # 限制精度上限，防止数值溢出
+        precision_q = torch.clamp(precision_q, max=1e5)
 
         logit = -self._calc_distance_bw_enc_codes(z_from_encoder_permuted, codebook, 0.5 * precision_q)
+        
+        # 添加数值稳定性
+        # 限制logit范围，防止softmax溢出
+        logit_max, _ = torch.max(logit, dim=-1, keepdim=True)
+        logit = logit - logit_max  # 数值稳定性技巧
+        logit = torch.clamp(logit, min=-50.0, max=50.0)  # 进一步限制范围
+        
         probabilities = torch.softmax(logit, dim=-1)
         log_probabilities = torch.log_softmax(logit, dim=-1)
+        
+        # 确保概率和为1且不含NaN
+        if torch.isnan(probabilities).any():
+            print("警告: 检测到概率计算中的NaN值，将使用均匀概率")
+            probabilities = torch.ones_like(probabilities) / self.size_dict
+            log_probabilities = torch.log(probabilities + 1e-10)
         
         # Quantization
         if flg_train:
@@ -75,6 +107,19 @@ class GaussianVectorQuantizer(VectorQuantizer):
                 encodings_hard.scatter_(1, indices, 1)
                 avg_probs = torch.mean(encodings_hard, dim=0)
             else:
+                # 添加安全检查
+                valid_probs = torch.isfinite(probabilities).all(dim=1)
+                if not valid_probs.all():
+                    print(f"警告: 检测到{(~valid_probs).sum().item()}个样本的概率分布无效，使用均匀分布替代")
+                    # 对于无效的概率行，使用均匀分布
+                    uniform_probs = torch.ones((~valid_probs).sum().item(), self.size_dict, 
+                                             device=probabilities.device) / self.size_dict
+                    probabilities[~valid_probs] = uniform_probs
+                
+                # 确保概率和为1
+                prob_sum = probabilities.sum(dim=1, keepdim=True)
+                probabilities = probabilities / prob_sum.clamp(min=1e-10)
+                
                 dist = Categorical(probabilities)
                 indices = dist.sample().view(bs, width, height)
                 encodings_hard = F.one_hot(indices, num_classes=self.size_dict).type_as(codebook)
@@ -82,11 +127,24 @@ class GaussianVectorQuantizer(VectorQuantizer):
             z_quantized = torch.matmul(encodings_hard, codebook).view(bs, width, height, dim_z)
         z_to_decoder = z_quantized.permute(0, 3, 1, 2).contiguous()
         
-        # Latent loss
+        # Latent loss - 添加数值稳定性
         kld_discrete = torch.sum(probabilities * log_probabilities, dim=(0,1)) / bs
+        # 确保kld_discrete不是NaN
+        if torch.isnan(kld_discrete) or torch.isinf(kld_discrete):
+            print("警告: KLD离散项计算出NaN/Inf，设置为0")
+            kld_discrete = torch.tensor(0.0, device=z_from_encoder.device)
+            
         kld_continuous = self._calc_distance_bw_enc_dec(z_from_encoder, z_to_decoder, 0.5 * precision_q).mean()
+        # 确保kld_continuous不是NaN
+        if torch.isnan(kld_continuous) or torch.isinf(kld_continuous):
+            print("警告: KLD连续项计算出NaN/Inf，设置为0")
+            kld_continuous = torch.tensor(0.0, device=z_from_encoder.device)
+            
         loss = kld_discrete + kld_continuous
-        perplexity = torch.exp(-torch.sum(avg_probs * torch.log(avg_probs + 1e-7)))
+        
+        # 确保avg_probs不含NaN且非零
+        avg_probs = torch.clamp(avg_probs, min=1e-10)
+        perplexity = torch.exp(-torch.sum(avg_probs * torch.log(avg_probs + 1e-10)))
 
         return z_to_decoder, loss, perplexity
 
@@ -146,11 +204,42 @@ class VmfVectorQuantizer(VectorQuantizer):
     def _quantize(self, z_from_encoder, kappa_q, codebook, flg_train=True, flg_quant_det=False):
         bs, dim_z, width, height = z_from_encoder.shape
         z_from_encoder_permuted = z_from_encoder.permute(0, 2, 3, 1).contiguous()
+        
+        # 添加数值稳定性检查
+        # 1. 确保kappa_q没有无效值
+        if torch.isnan(kappa_q).any() or torch.isinf(kappa_q).any():
+            print("警告: 检测到kappa_q中有NaN或Inf值，将替换为默认值")
+            kappa_q = torch.where(torch.isnan(kappa_q) | torch.isinf(kappa_q), 
+                                torch.tensor(1.0, device=kappa_q.device), kappa_q)
+        
+        # 2. 确保z_from_encoder没有无效值
+        if torch.isnan(z_from_encoder).any() or torch.isinf(z_from_encoder).any():
+            print("警告: 检测到z_from_encoder中有NaN或Inf值，将替换为0")
+            z_from_encoder = torch.where(torch.isnan(z_from_encoder) | torch.isinf(z_from_encoder),
+                                      torch.tensor(0.0, device=z_from_encoder.device), z_from_encoder)
+            z_from_encoder_permuted = z_from_encoder.permute(0, 2, 3, 1).contiguous()
+        
+        # 限制kappa_q范围，防止数值问题
+        kappa_q = torch.clamp(kappa_q, min=1e-5, max=1e5)
+        
         codebook_norm = F.normalize(codebook, p=2.0, dim=1)
 
         logit = -self._calc_distance_bw_enc_codes(z_from_encoder_permuted, codebook_norm, kappa_q)
+        
+        # 添加数值稳定性
+        # 限制logit范围，防止softmax溢出
+        logit_max, _ = torch.max(logit, dim=-1, keepdim=True)
+        logit = logit - logit_max  # 数值稳定性技巧
+        logit = torch.clamp(logit, min=-50.0, max=50.0)  # 进一步限制范围
+        
         probabilities = torch.softmax(logit, dim=-1)
         log_probabilities = torch.log_softmax(logit, dim=-1)
+        
+        # 确保概率和为1且不含NaN
+        if torch.isnan(probabilities).any():
+            print("警告: 检测到概率计算中的NaN值，将使用均匀概率")
+            probabilities = torch.ones_like(probabilities) / self.size_dict
+            log_probabilities = torch.log(probabilities + 1e-10)
         
         # Quantization
         if flg_train:
@@ -164,6 +253,19 @@ class VmfVectorQuantizer(VectorQuantizer):
                 encodings_hard.scatter_(1, indices, 1)
                 avg_probs = torch.mean(encodings_hard, dim=0)
             else:
+                # 添加安全检查
+                valid_probs = torch.isfinite(probabilities).all(dim=1)
+                if not valid_probs.all():
+                    print(f"警告: 检测到{(~valid_probs).sum().item()}个样本的概率分布无效，使用均匀分布替代")
+                    # 对于无效的概率行，使用均匀分布
+                    uniform_probs = torch.ones((~valid_probs).sum().item(), self.size_dict, 
+                                            device=probabilities.device) / self.size_dict
+                    probabilities[~valid_probs] = uniform_probs
+                
+                # 确保概率和为1
+                prob_sum = probabilities.sum(dim=1, keepdim=True)
+                probabilities = probabilities / prob_sum.clamp(min=1e-10)
+                
                 dist = Categorical(probabilities)
                 indices = dist.sample().view(bs, width, height)
                 encodings_hard = F.one_hot(indices, num_classes=self.size_dict).type_as(codebook)
@@ -171,11 +273,24 @@ class VmfVectorQuantizer(VectorQuantizer):
             z_quantized = torch.matmul(encodings_hard, codebook_norm).view(bs, width, height, dim_z)
         z_to_decoder = z_quantized.permute(0, 3, 1, 2).contiguous()
 
-        # Latent loss
+        # Latent loss - 添加数值稳定性
         kld_discrete = torch.sum(probabilities * log_probabilities, dim=(0,1)) / bs
-        kld_continuous = self._calc_distance_bw_enc_dec(z_from_encoder, z_to_decoder, kappa_q).mean()        
+        # 确保kld_discrete不是NaN
+        if torch.isnan(kld_discrete) or torch.isinf(kld_discrete):
+            print("警告: KLD离散项计算出NaN/Inf，设置为0")
+            kld_discrete = torch.tensor(0.0, device=z_from_encoder.device)
+            
+        kld_continuous = self._calc_distance_bw_enc_dec(z_from_encoder, z_to_decoder, kappa_q).mean()
+        # 确保kld_continuous不是NaN
+        if torch.isnan(kld_continuous) or torch.isinf(kld_continuous):
+            print("警告: KLD连续项计算出NaN/Inf，设置为0")
+            kld_continuous = torch.tensor(0.0, device=z_from_encoder.device)
+            
         loss = kld_discrete + kld_continuous
-        perplexity = torch.exp(-torch.sum(avg_probs * torch.log(avg_probs + 1e-7)))
+        
+        # 确保avg_probs不含NaN且非零
+        avg_probs = torch.clamp(avg_probs, min=1e-10)
+        perplexity = torch.exp(-torch.sum(avg_probs * torch.log(avg_probs + 1e-10)))
 
         return z_to_decoder, loss, perplexity
  
