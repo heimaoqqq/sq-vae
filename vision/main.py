@@ -29,9 +29,19 @@ def arg_parse():
 
 def load_config(args):
     cfgs = get_cfgs_defaults()
-    # 直接使用提供的配置文件路径，不再拼接
-    config_path = args.config_file
-    print(config_path)
+    # 更健壮的配置文件路径处理
+    if os.path.exists(args.config_file):
+        # 如果直接提供的路径存在
+        config_path = args.config_file
+    else:
+        # 尝试在configs目录下查找
+        config_path = os.path.join(os.path.dirname(__file__), "configs", args.config_file)
+        # 如果仍然找不到，尝试使用纯文件名（不带路径）
+        if not os.path.exists(config_path) and "/" in args.config_file:
+            config_file_name = os.path.basename(args.config_file)
+            config_path = os.path.join(os.path.dirname(__file__), "configs", config_file_name)
+    
+    print(f"尝试加载配置文件: {config_path}")
     cfgs.merge_from_file(config_path)
     cfgs.train.seed = args.seed
     cfgs.flags.save = args.save
