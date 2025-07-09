@@ -2,32 +2,31 @@ path_specific: "microdoppler_sqvae_gaussian_3_enhanced/"
 
 dataset:
   name: 'MicroDoppler'
-  shape: (3, 64, 64)  # 使用标准分辨率
-  dim_x: 12288  # 3 * 64 * 64
+  shape: (3, 64, 64)
+  dim_x: 12288 # 3 * 64 * 64
 
 model:
-  name: "GaussianSQVAE"
+  name: "EnhancedGaussianSQVAE"  # 使用增强型模型
   log_param_q_init: 2.995732273553991 # log(20.0)
   param_var_q: "gaussian_3"
-  # 增加重建损失权重，减小隐空间损失权重
-  recon_weight: 2.0
-  latent_weight: 0.5
+  use_perceptual: True  # 使用感知损失
+  perceptual_weight: 0.05  # 感知损失权重
+  use_spectral: True  # 使用频谱损失
+  spectral_weight: 0.05  # 频谱损失权重
 
 network:
-  name: "resnet"  # 使用标准ResNet架构
-  num_rb: 8  # 增加ResBlock数量以提高网络容量
-  activation: "swish"  # 使用Swish激活函数提高表达能力
-  # 添加更多通道
-  channel_multiplier: 1.5
-  
+  name: "enhanced_resnet"  # 使用增强型解码器
+  num_rb: 6
+  enhancer_type: "microdoppler"  # 使用微多普勒增强器
+
 train:
   bs: 32
-  lr: 0.0003  # 使用较小的学习率以稳定训练
-  epoch_max: 150
-  # 添加学习率调度
-  lr_scheduler: "cosine"
-  warmup_epochs: 5
+  lr: 0.001
+  epoch_max: 100
 
 quantization:
-  size_dict: 1024  # 使用标准SQ-VAE的码本大小，已经足够
-  dim_dict: 64 
+  size_dict: 512
+  dim_dict: 64
+
+processing:
+  method: "resize"  # 使用resize而非downsample 

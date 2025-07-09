@@ -98,11 +98,6 @@ class GaussianSQVAE(SQVAE):
     def __init__(self, cfgs, flgs):
         super(GaussianSQVAE, self).__init__(cfgs, flgs)
         self.flg_arelbo = flgs.arelbo # Use MLE for optimization of decoder variance
-        
-        # 获取重建损失和隐空间损失的权重
-        self.recon_weight = getattr(cfgs.model, "recon_weight", 1.0)
-        self.latent_weight = getattr(cfgs.model, "latent_weight", 1.0)
-        
         if not self.flg_arelbo:
             self.logvar_x = nn.Parameter(torch.tensor(np.log(0.1)))
     
@@ -116,16 +111,11 @@ class GaussianSQVAE(SQVAE):
             loss_reconst = self.dim_x * torch.log(mse) / 2
         else:
             loss_reconst = mse / (2*self.logvar_x.exp()) + self.dim_x * self.logvar_x / 2
-        
-        # 应用权重
-        weighted_loss_reconst = self.recon_weight * loss_reconst
-        weighted_loss_latent = self.latent_weight * loss_latent
-        
         # Entire loss
-        loss_all = weighted_loss_reconst + weighted_loss_latent
+        loss_all = loss_reconst + loss_latent
         loss = dict(all=loss_all, mse=mse)
 
-        return loss
+        return loss 
 
 
 class VmfSQVAE(SQVAE):

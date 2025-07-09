@@ -4,7 +4,7 @@ from configs.defaults import get_cfgs_defaults
 import torch
 import sys
 
-from trainer import GaussianSQVAETrainer, VmfSQVAETrainer
+from trainer import GaussianSQVAETrainer, VmfSQVAETrainer, EnhancedGaussianSQVAETrainer
 from util import set_seeds, get_loader
 
 
@@ -29,19 +29,8 @@ def arg_parse():
 
 def load_config(args):
     cfgs = get_cfgs_defaults()
-    # 更健壮的配置文件路径处理
-    if os.path.exists(args.config_file):
-        # 如果直接提供的路径存在
-        config_path = args.config_file
-    else:
-        # 尝试在configs目录下查找
-        config_path = os.path.join(os.path.dirname(__file__), "configs", args.config_file)
-        # 如果仍然找不到，尝试使用纯文件名（不带路径）
-        if not os.path.exists(config_path) and "/" in args.config_file:
-            config_file_name = os.path.basename(args.config_file)
-            config_path = os.path.join(os.path.dirname(__file__), "configs", config_file_name)
-    
-    print(f"尝试加载配置文件: {config_path}")
+    config_path = os.path.join(os.path.dirname(__file__), "configs", args.config_file)
+    print(config_path)
     cfgs.merge_from_file(config_path)
     cfgs.train.seed = args.seed
     cfgs.flags.save = args.save
@@ -95,8 +84,10 @@ if __name__ == "__main__":
         trainer = GaussianSQVAETrainer(cfgs, flgs, train_loader, val_loader, test_loader)
     elif cfgs.model.name == "VmfSQVAE":
         trainer = VmfSQVAETrainer(cfgs, flgs, train_loader, val_loader, test_loader)
+    elif cfgs.model.name == "EnhancedGaussianSQVAE":
+        trainer = EnhancedGaussianSQVAETrainer(cfgs, flgs, train_loader, val_loader, test_loader)
     else:
-        raise Exception("Undefined model.")
+        raise Exception(f"Undefined model: {cfgs.model.name}")
 
     ## Main
     print("Starting training...")

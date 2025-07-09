@@ -29,6 +29,26 @@ def myprint(statement, noflg=False):
 
 
 def get_loader(dataset, path_dataset, bs=64, n_work=2):
+    """
+    获取数据加载器
+    """
+    # 检查处理方法配置（如果存在）
+    # 如果配置了使用resize方法，则指定image_size，否则为None（使用下采样）
+    image_size = (64, 64) # 默认处理方法为resize到64x64
+    
+    # MicroDoppler数据集加载特殊处理
+    if dataset == "MicroDoppler":
+        # 使用自定义的微多普勒数据集加载器
+        train_loader, val_loader, test_loader = get_microdoppler_dataloaders(
+            path_dataset,
+            batch_size=bs,
+            num_workers=n_work,
+            image_size=image_size,  # 使用缩放处理图像
+            train_ratio=0.7,
+            val_ratio=0.15
+        )
+        return train_loader, val_loader, test_loader
+    
     if dataset == "MNIST" or  dataset == "FashionMNIST":
         preproc_transform = transforms.Compose([
             transforms.ToTensor(),
