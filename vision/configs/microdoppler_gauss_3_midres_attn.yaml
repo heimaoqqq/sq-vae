@@ -1,4 +1,4 @@
-path_specific: "microdoppler_sqvae_gaussian_3_highres_32/"
+path_specific: "microdoppler_sqvae_gaussian_3_midres_attn/"
 
 dataset:
   name: 'MicroDoppler'
@@ -11,14 +11,14 @@ model:
   param_var_q: "gaussian_3"
 
 network:
-  name: "highres_resnet"  # 使用新的高分辨率网络架构
+  name: "midres_attn_resnet"  # 使用带注意力的中等分辨率网络架构
   num_rb: 6  # 使用适当数量的ResBlock
 
 train:
-  bs: 32  # 由于图像更大，减小batch size
+  bs: 32  # 由于图像更大，保持适当的batch size
   lr: 0.0005  # 使用较小的学习率以稳定训练
   epoch_max: 100
 
 quantization:
-  size_dict: 512  # 适当的字典大小
+  size_dict: 512  # 设置码本大小为512
   dim_dict: 64  # 编码维度 

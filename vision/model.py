@@ -12,6 +12,7 @@ import networks.celebamask_hq as net_celebamask_hq
 import networks.microdoppler as net_microdoppler
 import networks.microdoppler_highres as net_microdoppler_highres
 import networks.microdoppler_midres as net_microdoppler_midres
+import networks.microdoppler_midres_attention as net_microdoppler_midres_attention
 from third_party.ive import ive
 
 
@@ -48,6 +49,12 @@ class SQVAE(nn.Module):
             self.encoder = eval("net_microdoppler_midres.EncoderVq_midres_resnet")(
                 cfgs.quantization.dim_dict, cfgs.network, flgs.bn, flgs.var_q)
             self.decoder = eval("net_microdoppler_midres.DecoderVq_midres_resnet")(
+                cfgs.quantization.dim_dict, cfgs.network, flgs.bn)
+        elif cfgs.network.name == "midres_attn_resnet":
+            # 使用带注意力机制的中等分辨率网络
+            self.encoder = eval("net_microdoppler_midres_attention.EncoderVq_midres_attn_resnet")(
+                cfgs.quantization.dim_dict, cfgs.network, flgs.bn, flgs.var_q)
+            self.decoder = eval("net_microdoppler_midres_attention.DecoderVq_midres_attn_resnet")(
                 cfgs.quantization.dim_dict, cfgs.network, flgs.bn)
         else:
             # 使用标准网络
