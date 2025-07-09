@@ -165,13 +165,26 @@ class GaussianVectorQuantizer(VectorQuantizer):
         # 检查z_to_decoder与z_from_encoder形状是否匹配，如果不匹配，调整大小
         if z_to_decoder.shape != original_shape:
             print(f"Warning: Shape mismatch between encoder output {original_shape} and decoder input {z_to_decoder.shape}")
-            # 使用插值调整z_to_decoder的形状以匹配z_from_encoder
-            z_to_decoder = F.interpolate(
-                z_to_decoder, 
-                size=(original_shape[2], original_shape[3]),
-                mode='bilinear', 
-                align_corners=False
-            )
+            # 首先处理批次大小不匹配问题
+            if z_to_decoder.shape[0] != original_shape[0]:
+                # 如果批次大小不匹配，调整为原始批次大小
+                if z_to_decoder.shape[0] > original_shape[0]:
+                    # 如果decoder输出批次更大，截取部分
+                    z_to_decoder = z_to_decoder[:original_shape[0]]
+                else:
+                    # 如果decoder输出批次更小，通过复制扩展
+                    repeat_times = (original_shape[0] + z_to_decoder.shape[0] - 1) // z_to_decoder.shape[0]
+                    z_to_decoder = z_to_decoder.repeat(repeat_times, 1, 1, 1)[:original_shape[0]]
+            
+            # 然后使用插值调整空间尺寸
+            if (z_to_decoder.shape[2] != original_shape[2] or 
+                z_to_decoder.shape[3] != original_shape[3]):
+                z_to_decoder = F.interpolate(
+                    z_to_decoder, 
+                    size=(original_shape[2], original_shape[3]),
+                    mode='bilinear', 
+                    align_corners=False
+                )
         
         # Latent loss
         kld_discrete = torch.sum(probabilities * log_probabilities, dim=(0,1)) / bs
@@ -254,15 +267,47 @@ class GaussianVectorQuantizer(VectorQuantizer):
     def _calc_distance_bw_enc_dec(self, x1, x2, weight):
         # 检查x1和x2的形状是否匹配
         if x1.shape != x2.shape:
-            # 如果形状不匹配，对weight进行插值调整
-            if isinstance(weight, torch.Tensor) and weight.dim() > 1:
-                # 如果weight是多维张量，也需要调整其形状
-                weight = F.interpolate(
-                    weight,
+            # 首先处理批次大小不匹配
+            if x1.shape[0] != x2.shape[0]:
+                # 调整x2的批次大小以匹配x1
+                if x2.shape[0] > x1.shape[0]:
+                    # 如果x2批次更大，截取部分
+                    x2 = x2[:x1.shape[0]]
+                else:
+                    # 如果x2批次更小，通过复制扩展
+                    repeat_times = (x1.shape[0] + x2.shape[0] - 1) // x2.shape[0]
+                    x2 = x2.repeat(repeat_times, 1, 1, 1)[:x1.shape[0]]
+            
+            # 然后处理空间尺寸不匹配
+            if (x1.shape[2] != x2.shape[2] or x1.shape[3] != x2.shape[3]):
+                # 使用插值调整x2的空间尺寸
+                x2 = F.interpolate(
+                    x2,
                     size=(x1.shape[2], x1.shape[3]),
                     mode='bilinear',
                     align_corners=False
                 )
+            
+            # 如果weight是多维张量，也需要调整其形状
+            if isinstance(weight, torch.Tensor) and weight.dim() > 1:
+                # 首先检查批次大小
+                if weight.shape[0] != x1.shape[0]:
+                    if weight.shape[0] > x1.shape[0]:
+                        # 如果weight批次更大，截取部分
+                        weight = weight[:x1.shape[0]]
+                    else:
+                        # 如果weight批次更小，通过复制扩展
+                        repeat_times = (x1.shape[0] + weight.shape[0] - 1) // weight.shape[0]
+                        weight = weight.repeat(repeat_times, 1, 1, 1)[:x1.shape[0]]
+                
+                # 然后检查空间尺寸
+                if (weight.shape[2] != x1.shape[2] or weight.shape[3] != x1.shape[3]):
+                    weight = F.interpolate(
+                        weight,
+                        size=(x1.shape[2], x1.shape[3]),
+                        mode='bilinear',
+                        align_corners=False
+                    )
         
         return torch.sum((x1-x2)**2 * weight, dim=(1,2,3))
     
