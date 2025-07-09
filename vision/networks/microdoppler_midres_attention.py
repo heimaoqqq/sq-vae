@@ -77,8 +77,8 @@ class SelfAttention(nn.Module):
         attn = F.softmax(attn, dim=-1)
         
         # 应用注意力
-        out = torch.matmul(attn, v.transpose(-2, -1))  # [b, heads, h*w, head_channels]
-        out = out.transpose(-2, -1).reshape(b, self.out_channels, h, w)
+        out = torch.matmul(attn, v)  # [b, heads, h*w, head_channels]
+        out = out.reshape(b, self.out_channels, h, w)
         
         # 输出投影
         out = self.proj(out)
