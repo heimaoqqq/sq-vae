@@ -100,13 +100,25 @@ class GaussianVectorQuantizer(VectorQuantizer):
             weight = weight.tile(1, 1, width, height).view(-1,1)
             distances = weight * calc_distance(z_from_encoder, codebook, self.dim_dict)
         elif self.param_var_q == "gaussian_3":
-            weight = weight.view(-1,1)
+            # 在gaussian_3中，权重是在通道维度上计算均值
+            # 我们需要将权重扩展到与z_from_encoder相同的空间维度
+            bs, width, height, dim_z = z_from_encoder.shape
+            # 将权重从[bs, 1, 1, 1]扩展到[bs, width, height, 1]，然后展平
+            weight = weight.expand(-1, width, height, -1).reshape(-1, 1)
             distances = weight * calc_distance(z_from_encoder, codebook, self.dim_dict)
         elif self.param_var_q == "gaussian_4":
-            z_from_encoder_flat = z_from_encoder.view(-1, self.dim_dict).unsqueeze(2)
-            codebook = codebook.t().unsqueeze(0)
-            weight = weight.permute(0, 2, 3, 1).contiguous().view(-1, self.dim_dict).unsqueeze(2)
-            distances = torch.sum(weight * ((z_from_encoder_flat - codebook) ** 2), dim=1)
+            # 在gaussian_4中，权重直接使用网络预测的每个位置的方差
+            # 我们需要将z_from_encoder和权重重塑为适当的形状进行计算
+            bs, width, height, dim_z = z_from_encoder.shape
+            z_from_encoder_flat = z_from_encoder.reshape(-1, self.dim_dict)
+            # 将权重从[bs, dim_z, width, height]变形为[bs*width*height, dim_z]
+            weight = weight.permute(0, 2, 3, 1).contiguous().reshape(-1, self.dim_dict)
+            
+            # 计算每个位置的距离，考虑每个维度的权重
+            z_sq = torch.sum(z_from_encoder_flat**2 * weight, dim=1, keepdim=True)
+            c_sq = torch.sum(codebook**2, dim=1)
+            z_c = torch.matmul(z_from_encoder_flat * weight, codebook.t())
+            distances = z_sq + c_sq - 2 * z_c
 
         return distances
         
