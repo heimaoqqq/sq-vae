@@ -1,4 +1,4 @@
-import sys
+﻿import sys
 import numpy as np
 from datetime import datetime
 from collections import defaultdict
@@ -17,12 +17,11 @@ class GaussianSQVAETrainer(TrainerBase):
     def __init__(self, cfgs, flgs, train_loader, val_loader, test_loader):
         super(GaussianSQVAETrainer, self).__init__(cfgs, flgs, train_loader, val_loader, test_loader)
         
-        # 从model_enhanced导入GaussianSQVAE
+        # 浠巑odel_enhanced瀵煎叆GaussianSQVAE
         from model import GaussianSQVAE
         self.model_class = GaussianSQVAE
         
-        # 初始化模型
-        self._initialize_model()
+        # 鍒濆鍖栨ā鍨?        self._initialize_model()
         
         self.plots = {
             "loss_train": [], "mse_train": [], "perplexity_train": [],
@@ -37,8 +36,7 @@ class GaussianSQVAETrainer(TrainerBase):
         self.model.train()
         start_time = time.time()
         print(f"Epoch {epoch}: Training...")
-        sys.stdout.flush()  # 强制刷新输出缓冲区
-        
+        sys.stdout.flush()  # 寮哄埗鍒锋柊杈撳嚭缂撳啿鍖?        
         for batch_idx, (x, _) in enumerate(self.train_loader):
             x = x.cuda()
             if self.flgs.decay:
@@ -49,8 +47,7 @@ class GaussianSQVAETrainer(TrainerBase):
             
             _, _, loss = self.model(x, flg_train=True, flg_quant_det=False)
             
-            # 确保所有损失值都是标量
-            for key in loss:
+            # 纭繚鎵€鏈夋崯澶卞€奸兘鏄爣閲?            for key in loss:
                 if isinstance(loss[key], torch.Tensor) and loss[key].numel() > 1:
                     loss[key] = loss[key].mean()
                     
@@ -67,15 +64,13 @@ class GaussianSQVAETrainer(TrainerBase):
         result["mse"] = np.array(ms_error).mean(0)
         result["perplexity"] = np.array(perplexity).mean(0)
         self.print_loss(result, "train", time.time()-start_time)
-        sys.stdout.flush()  # 强制刷新输出缓冲区
-                
+        sys.stdout.flush()  # 寮哄埗鍒锋柊杈撳嚭缂撳啿鍖?                
         return result    
     
     def _test(self, mode="validation"):
         self.model.eval()
         print(f"Epoch evaluation ({mode})...")
-        sys.stdout.flush()  # 强制刷新输出缓冲区
-        _ = self._test_sub(False, mode)
+        sys.stdout.flush()  # 寮哄埗鍒锋柊杈撳嚭缂撳啿鍖?        _ = self._test_sub(False, mode)
         result = self._test_sub(True, mode)
         self.scheduler.step(result["loss"])
         return result
@@ -98,18 +93,15 @@ class GaussianSQVAETrainer(TrainerBase):
                 x = x.cuda()
                 _, _, loss = self.model(x, flg_quant_det=flg_quant_det)
                 
-                # 确保所有损失值都是标量
-                for key in loss:
+                # 纭繚鎵€鏈夋崯澶卞€奸兘鏄爣閲?                for key in loss:
                     if isinstance(loss[key], torch.Tensor) and loss[key].numel() > 1:
                         loss[key] = loss[key].mean()
                 
-                # 收集损失值，转换为标量
-                test_loss.append(loss["all"].item())
+                # 鏀堕泦鎹熷け鍊硷紝杞崲涓烘爣閲?                test_loss.append(loss["all"].item())
                 ms_error.append(loss["mse"].item())
                 perplexity.append(loss["perplexity"].item())
                 
-                # 记录额外损失项（如果存在），确保转换为标量
-                if "perceptual" in loss:
+                # 璁板綍棰濆鎹熷け椤癸紙濡傛灉瀛樺湪锛夛紝纭繚杞崲涓烘爣閲?                if "perceptual" in loss:
                     perceptual_loss.append(loss["perceptual"].item() if torch.is_tensor(loss["perceptual"]) else loss["perceptual"])
                 if "spectral" in loss:
                     spectral_loss.append(loss["spectral"].item() if torch.is_tensor(loss["spectral"]) else loss["spectral"])
@@ -119,15 +111,14 @@ class GaussianSQVAETrainer(TrainerBase):
         result["mse"] = np.array(ms_error).mean(0)
         result["perplexity"] = np.array(perplexity).mean(0)
         
-        # 添加额外损失项到结果
+        # 娣诲姞棰濆鎹熷け椤瑰埌缁撴灉
         if perceptual_loss:
             result["perceptual"] = np.array(perceptual_loss).mean(0)
         if spectral_loss:
             result["spectral"] = np.array(spectral_loss).mean(0)
             
         self.print_loss(result, mode, time.time()-start_time)
-        sys.stdout.flush()  # 强制刷新输出缓冲区
-        
+        sys.stdout.flush()  # 寮哄埗鍒锋柊杈撳嚭缂撳啿鍖?        
         return result
     
     def _make_epoch_logger(self, train_result, val_result):
@@ -144,7 +135,7 @@ class GaussianSQVAETrainer(TrainerBase):
         if individual:
             self._generate_individual_reconstructions(filename, num_images=8)
         else:
-        self._generate_reconstructions_continuous(filename, nrows=nrows, ncols=ncols)
+            self._generate_reconstructions_continuous(filename, nrows=nrows, ncols=ncols)
     
     def print_loss(self, result, mode, time_interval):
         message = mode.capitalize().ljust(16) + \
@@ -152,20 +143,18 @@ class GaussianSQVAETrainer(TrainerBase):
             .format(
                 result["loss"], result["mse"], result["perplexity"], time_interval
             )
-        print(message)  # 总是打印，忽略noprint标志
-        sys.stdout.flush()  # 强制刷新输出缓冲区
-
+        print(message)  # 鎬绘槸鎵撳嵃锛屽拷鐣oprint鏍囧織
+        sys.stdout.flush()  # 寮哄埗鍒锋柊杈撳嚭缂撳啿鍖?
 
 class VmfSQVAETrainer(TrainerBase):
     def __init__(self, cfgs, flgs, train_loader, val_loader, test_loader):
         super(VmfSQVAETrainer, self).__init__(cfgs, flgs, train_loader, val_loader, test_loader)
         
-        # 从model导入VmfSQVAE
+        # 浠巑odel瀵煎叆VmfSQVAE
         from model import VmfSQVAE
         self.model_class = VmfSQVAE
         
-        # 初始化模型
-        self._initialize_model()
+        # 鍒濆鍖栨ā鍨?        self._initialize_model()
         
         self.plots = {
             "loss_train": [], "mse_train": [], "perplexity_train": [],
@@ -180,8 +169,7 @@ class VmfSQVAETrainer(TrainerBase):
         self.model.train()
         start_time = time.time()
         print(f"Epoch {epoch}: Training...")
-        sys.stdout.flush()  # 强制刷新输出缓冲区
-        
+        sys.stdout.flush()  # 寮哄埗鍒锋柊杈撳嚭缂撳啿鍖?        
         for batch_idx, (x, y) in enumerate(self.train_loader):
             y = self.preprocess(x, y)
             if self.flgs.decay:
@@ -191,8 +179,7 @@ class VmfSQVAETrainer(TrainerBase):
                 self.model.module.quantizer.set_temperature(temperature_current)
             _, _, loss = self.model(y, flg_train=True, flg_quant_det=False)
             
-            # 确保所有损失值都是标量
-            for key in loss:
+            # 纭繚鎵€鏈夋崯澶卞€奸兘鏄爣閲?            for key in loss:
                 if isinstance(loss[key], torch.Tensor) and loss[key].numel() > 1:
                     loss[key] = loss[key].mean()
             
@@ -209,14 +196,12 @@ class VmfSQVAETrainer(TrainerBase):
         result["acc"] = np.array(acc).mean(0)
         result["perplexity"] = np.array(perplexity).mean(0)
         self.print_loss(result, "train", time.time()-start_time)
-        sys.stdout.flush()  # 强制刷新输出缓冲区
-        
+        sys.stdout.flush()  # 寮哄埗鍒锋柊杈撳嚭缂撳啿鍖?        
         return result
     
     def _test(self, mode="val"):
         print(f"Epoch evaluation ({mode})...")
-        sys.stdout.flush()  # 强制刷新输出缓冲区
-        _ = self._test_sub(False)
+        sys.stdout.flush()  # 寮哄埗鍒锋柊杈撳嚭缂撳啿鍖?        _ = self._test_sub(False)
         result = self._test_sub(True, mode)
         self.scheduler.step(result["loss"])
         return result
@@ -237,8 +222,7 @@ class VmfSQVAETrainer(TrainerBase):
                 y = self.preprocess(x, y)
                 x_reconst, _, loss = self.model(y, flg_quant_det=flg_quant_det)
                 
-                # 确保所有损失值都是标量
-                for key in loss:
+                # 纭繚鎵€鏈夋崯澶卞€奸兘鏄爣閲?                for key in loss:
                     if isinstance(loss[key], torch.Tensor) and loss[key].numel() > 1:
                         loss[key] = loss[key].mean()
                 
@@ -257,8 +241,7 @@ class VmfSQVAETrainer(TrainerBase):
         print("%15s"%"PixAcc: {:5.4f} mIoU: {:5.4f}".format(
             pixAcc, mIoU
         ))
-        sys.stdout.flush()  # 强制刷新输出缓冲区
-        
+        sys.stdout.flush()  # 寮哄埗鍒锋柊杈撳嚭缂撳啿鍖?        
         return result
     
     def _make_epoch_logger(self, train_result, val_result):
@@ -284,7 +267,7 @@ class VmfSQVAETrainer(TrainerBase):
             .format(
             result["loss"], result["acc"], result["perplexity"], time_interval
             )
-        print(message)  # 总是打印，忽略noprint标志
-        sys.stdout.flush()  # 强制刷新输出缓冲区
+        print(message)  # 鎬绘槸鎵撳嵃锛屽拷鐣oprint鏍囧織
+        sys.stdout.flush()  # 寮哄埗鍒锋柊杈撳嚭缂撳啿鍖?
 
 
