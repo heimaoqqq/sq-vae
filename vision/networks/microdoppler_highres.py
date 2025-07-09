@@ -11,43 +11,19 @@ class EncoderVq_highres(nn.Module):
         # 初始卷积层
         layers_conv = []
         # 第一层：256x256 -> 128x128
-        layers_conv.append(nn.Sequential(nn.Conv2d(3, dim_z // 16, 4, stride=2, padding=1)))
-        if flg_bn:
-            layers_conv.append(nn.BatchNorm2d(dim_z // 16))
-        layers_conv.append(nn.ReLU())
-        
-        # 第二层：128x128 -> 64x64
-        layers_conv.append(nn.Conv2d(dim_z // 16, dim_z // 8, 4, stride=2, padding=1))
-        if flg_bn:
-            layers_conv.append(nn.BatchNorm2d(dim_z // 8))
-        layers_conv.append(nn.ReLU())
-        
-        # 第三层：64x64 -> 32x32
-        layers_conv.append(nn.Conv2d(dim_z // 8, dim_z // 4, 4, stride=2, padding=1))
+        layers_conv.append(nn.Sequential(nn.Conv2d(3, dim_z // 4, 4, stride=2, padding=1)))
         if flg_bn:
             layers_conv.append(nn.BatchNorm2d(dim_z // 4))
         layers_conv.append(nn.ReLU())
         
-        # 第四层：32x32 -> 16x16
+        # 第二层：128x128 -> 64x64
         layers_conv.append(nn.Conv2d(dim_z // 4, dim_z // 2, 4, stride=2, padding=1))
         if flg_bn:
             layers_conv.append(nn.BatchNorm2d(dim_z // 2))
         layers_conv.append(nn.ReLU())
         
-        # 第五层：16x16 -> 8x8
+        # 第三层：64x64 -> 32x32
         layers_conv.append(nn.Conv2d(dim_z // 2, dim_z, 4, stride=2, padding=1))
-        if flg_bn:
-            layers_conv.append(nn.BatchNorm2d(dim_z))
-        layers_conv.append(nn.ReLU())
-        
-        # 第六层：8x8 -> 4x4
-        layers_conv.append(nn.Conv2d(dim_z, dim_z, 4, stride=2, padding=1))
-        if flg_bn:
-            layers_conv.append(nn.BatchNorm2d(dim_z))
-        layers_conv.append(nn.ReLU())
-        
-        # 第七层：4x4 -> 2x2
-        layers_conv.append(nn.Conv2d(dim_z, dim_z, 4, stride=2, padding=1))
         if flg_bn:
             layers_conv.append(nn.BatchNorm2d(dim_z))
         layers_conv.append(nn.ReLU())
@@ -96,44 +72,20 @@ class DecoderVq_highres(nn.Module):
             layers_convt.append(nn.BatchNorm2d(dim_z))
         layers_convt.append(nn.ReLU())
         
-        # 第一层上采样：2x2 -> 4x4
-        layers_convt.append(nn.ConvTranspose2d(dim_z, dim_z, 4, stride=2, padding=1))
-        if flg_bn:
-            layers_convt.append(nn.BatchNorm2d(dim_z))
-        layers_convt.append(nn.ReLU())
-        
-        # 第二层上采样：4x4 -> 8x8
-        layers_convt.append(nn.ConvTranspose2d(dim_z, dim_z, 4, stride=2, padding=1))
-        if flg_bn:
-            layers_convt.append(nn.BatchNorm2d(dim_z))
-        layers_convt.append(nn.ReLU())
-        
-        # 第三层上采样：8x8 -> 16x16
+        # 第一层上采样：32x32 -> 64x64
         layers_convt.append(nn.ConvTranspose2d(dim_z, dim_z // 2, 4, stride=2, padding=1))
         if flg_bn:
             layers_convt.append(nn.BatchNorm2d(dim_z // 2))
         layers_convt.append(nn.ReLU())
         
-        # 第四层上采样：16x16 -> 32x32
+        # 第二层上采样：64x64 -> 128x128
         layers_convt.append(nn.ConvTranspose2d(dim_z // 2, dim_z // 4, 4, stride=2, padding=1))
         if flg_bn:
             layers_convt.append(nn.BatchNorm2d(dim_z // 4))
         layers_convt.append(nn.ReLU())
         
-        # 第五层上采样：32x32 -> 64x64
-        layers_convt.append(nn.ConvTranspose2d(dim_z // 4, dim_z // 8, 4, stride=2, padding=1))
-        if flg_bn:
-            layers_convt.append(nn.BatchNorm2d(dim_z // 8))
-        layers_convt.append(nn.ReLU())
-        
-        # 第六层上采样：64x64 -> 128x128
-        layers_convt.append(nn.ConvTranspose2d(dim_z // 8, dim_z // 16, 4, stride=2, padding=1))
-        if flg_bn:
-            layers_convt.append(nn.BatchNorm2d(dim_z // 16))
-        layers_convt.append(nn.ReLU())
-        
-        # 第七层上采样：128x128 -> 256x256
-        layers_convt.append(nn.ConvTranspose2d(dim_z // 16, 3, 4, stride=2, padding=1))
+        # 第三层上采样：128x128 -> 256x256
+        layers_convt.append(nn.ConvTranspose2d(dim_z // 4, 3, 4, stride=2, padding=1))
         layers_convt.append(nn.Sigmoid())
         
         self.convt = nn.Sequential(*layers_convt)

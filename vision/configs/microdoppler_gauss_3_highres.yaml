@@ -12,13 +12,13 @@ model:
 
 network:
   name: "highres_resnet"  # 使用新的高分辨率网络架构
-  num_rb: 8  # 增加ResBlock数量以处理更复杂的特征
+  num_rb: 6  # 使用适当数量的ResBlock
 
 train:
-  bs: 8  # 由于图像更大，减小batch size
+  bs: 16  # 由于图像更大，减小batch size
   lr: 0.0005  # 使用较小的学习率以稳定训练
-  epoch_max: 150  # 增加训练轮数
+  epoch_max: 100
 
 quantization:
-  size_dict: 2048  # 增加字典大小以适应更复杂的图像特征
-  dim_dict: 128  # 增加每个编码的维度 
+  size_dict: 1024  # 适当的字典大小
+  dim_dict: 64  # 编码维度 
