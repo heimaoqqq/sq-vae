@@ -1,0 +1,24 @@
+path_specific: "microdoppler_sqvae_gaussian_3_midres/"
+
+dataset:
+  name: 'MicroDoppler'
+  shape: (3, 256, 256)  # 使用原始分辨率
+  dim_x: 196608  # 3 * 256 * 256
+
+model:
+  name: "GaussianSQVAE"
+  log_param_q_init: 2.995732273553991 # log(20.0)
+  param_var_q: "gaussian_3"
+
+network:
+  name: "midres_resnet"  # 使用中等分辨率网络架构
+  num_rb: 6  # 使用适当数量的ResBlock
+
+train:
+  bs: 32  # 由于图像更大，保持适当的batch size
+  lr: 0.0005  # 使用较小的学习率以稳定训练
+  epoch_max: 100
+
+quantization:
+  size_dict: 512  # 设置码本大小为512
+  dim_dict: 64  # 编码维度 

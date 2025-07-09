@@ -11,6 +11,7 @@ import networks.celeba as net_celeba
 import networks.celebamask_hq as net_celebamask_hq
 import networks.microdoppler as net_microdoppler
 import networks.microdoppler_highres as net_microdoppler_highres
+import networks.microdoppler_midres as net_microdoppler_midres
 from third_party.ive import ive
 
 
@@ -41,6 +42,12 @@ class SQVAE(nn.Module):
             self.encoder = eval("net_microdoppler_highres.EncoderVq_highres_resnet")(
                 cfgs.quantization.dim_dict, cfgs.network, flgs.bn, flgs.var_q)
             self.decoder = eval("net_microdoppler_highres.DecoderVq_highres_resnet")(
+                cfgs.quantization.dim_dict, cfgs.network, flgs.bn)
+        elif cfgs.network.name == "midres_resnet":
+            # 使用中等分辨率网络
+            self.encoder = eval("net_microdoppler_midres.EncoderVq_midres_resnet")(
+                cfgs.quantization.dim_dict, cfgs.network, flgs.bn, flgs.var_q)
+            self.decoder = eval("net_microdoppler_midres.DecoderVq_midres_resnet")(
                 cfgs.quantization.dim_dict, cfgs.network, flgs.bn)
         else:
             # 使用标准网络
