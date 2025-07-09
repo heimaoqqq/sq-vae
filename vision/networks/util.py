@@ -28,14 +28,19 @@ def get_activation(name):
 class ResBlock(nn.Module):
     def __init__(self, dim, activation="relu"):
         super(ResBlock, self).__init__()
-        self.res = nn.Sequential(
+        
+        # 使用与原始实现相同的模块名称，以确保兼容性
+        act = get_activation(activation)
+        
+        self.block = nn.Sequential(
             nn.Conv2d(dim, dim, 3, stride=1, padding=1),
             nn.BatchNorm2d(dim),
-            get_activation(activation),
+            act,
             nn.Conv2d(dim, dim, 1, stride=1, padding=0),
             nn.BatchNorm2d(dim)
         )
-        self.activation = get_activation(activation)
+        
+        self.activation = act
 
     def forward(self, x):
-        return self.activation(x + self.res(x))
+        return x + self.block(x)
