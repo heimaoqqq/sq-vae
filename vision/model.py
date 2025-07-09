@@ -10,6 +10,7 @@ import networks.cifar10 as net_cifar10
 import networks.celeba as net_celeba
 import networks.celebamask_hq as net_celebamask_hq
 import networks.microdoppler as net_microdoppler
+import networks.microdoppler_enhanced as net_microdoppler_enhanced
 from third_party.ive import ive
 
 
@@ -34,11 +35,18 @@ class SQVAE(nn.Module):
         # Encoder/decoder
         self.param_var_q = cfgs.model.param_var_q
         
-        # 使用标准网络
-        self.encoder = eval("net_{}.EncoderVq_{}".format(dataset.lower(), cfgs.network.name))(
-            cfgs.quantization.dim_dict, cfgs.network, flgs.bn, flgs.var_q)
-        self.decoder = eval("net_{}.DecoderVq_{}".format(dataset.lower(), cfgs.network.name))(
-            cfgs.quantization.dim_dict, cfgs.network, flgs.bn)
+        # 处理增强型网络的特殊情况
+        if cfgs.network.name == "enhanced_resnet":
+            self.encoder = net_microdoppler_enhanced.EncoderVq_enhanced_resnet(
+                cfgs.quantization.dim_dict, cfgs.network, flgs.bn, flgs.var_q)
+            self.decoder = net_microdoppler_enhanced.DecoderVq_enhanced_resnet(
+                cfgs.quantization.dim_dict, cfgs.network, flgs.bn)
+        else:
+            # 使用标准网络
+            self.encoder = eval("net_{}.EncoderVq_{}".format(dataset.lower(), cfgs.network.name))(
+                cfgs.quantization.dim_dict, cfgs.network, flgs.bn, flgs.var_q)
+            self.decoder = eval("net_{}.DecoderVq_{}".format(dataset.lower(), cfgs.network.name))(
+                cfgs.quantization.dim_dict, cfgs.network, flgs.bn)
                 
         self.apply(weights_init)
 
