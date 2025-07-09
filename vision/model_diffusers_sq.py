@@ -64,17 +64,27 @@ class DiffusersEncoder(nn.Module):
         self.conv_in = nn.Conv2d(in_channels, block_out_channels[0], kernel_size=3, padding=1)
         
         self.blocks = nn.ModuleList([])
-        channels = [block_out_channels[0]] + block_out_channels
+        
+        # 修复：确保通道数正确匹配
+        current_channels = block_out_channels[0]
         
         for i in range(len(block_out_channels)):
             # 添加残差块
-            for _ in range(layers_per_block):
-                self.blocks.append(self._create_resnet_block(channels[i], channels[i+1]))
+            for j in range(layers_per_block):
+                # 第一层残差块输入通道是current_channels，输出通道是block_out_channels[i]
+                if j == 0:
+                    self.blocks.append(self._create_resnet_block(current_channels, block_out_channels[i]))
+                else:
+                    self.blocks.append(self._create_resnet_block(block_out_channels[i], block_out_channels[i]))
+            
+            # 更新当前通道数
+            current_channels = block_out_channels[i]
             
             # 添加下采样层
             if i < len(block_out_channels) - 1:
-                self.blocks.append(nn.Conv2d(channels[i+1], channels[i+1], kernel_size=4, stride=2, padding=1))
+                self.blocks.append(nn.Conv2d(current_channels, block_out_channels[i+1], kernel_size=4, stride=2, padding=1))
                 self.blocks.append(nn.LeakyReLU(0.2))
+                current_channels = block_out_channels[i+1]
         
         # 输出层
         last_channel = block_out_channels[-1]
@@ -154,25 +164,33 @@ class DiffusersDecoder(nn.Module):
     
     def _create_custom_decoder(self, in_channels, out_channels, block_out_channels, layers_per_block):
         """创建自定义解码器，模仿diffusers的设计"""
-        self.conv_in = nn.Conv2d(in_channels, block_out_channels[-1], kernel_size=3, padding=1)
+        # 反转通道列表以匹配上采样过程
+        reversed_block_out_channels = list(reversed(block_out_channels))
+        
+        # 输入转换层
+        self.conv_in = nn.Conv2d(in_channels, reversed_block_out_channels[0], kernel_size=3, padding=1)
         
         self.blocks = nn.ModuleList([])
-        # 反转通道列表以匹配上采样过程
-        channels = list(reversed(block_out_channels))
         
-        for i in range(len(channels)):
+        # 跟踪当前通道数
+        current_channels = reversed_block_out_channels[0]
+        
+        for i in range(len(reversed_block_out_channels)):
             # 添加残差块
-            for _ in range(layers_per_block):
-                self.blocks.append(self._create_resnet_block(channels[i], channels[i]))
+            for j in range(layers_per_block):
+                self.blocks.append(self._create_resnet_block(current_channels, reversed_block_out_channels[i]))
+                current_channels = reversed_block_out_channels[i]
             
             # 添加上采样层
-            if i < len(channels) - 1:
-                self.blocks.append(nn.ConvTranspose2d(channels[i], channels[i+1], kernel_size=4, stride=2, padding=1))
+            if i < len(reversed_block_out_channels) - 1:
+                next_channels = reversed_block_out_channels[i+1]
+                self.blocks.append(nn.ConvTranspose2d(current_channels, next_channels, kernel_size=4, stride=2, padding=1))
                 self.blocks.append(nn.LeakyReLU(0.2))
+                current_channels = next_channels
         
         # 输出层
         self.conv_out = nn.Sequential(
-            nn.Conv2d(channels[-1], out_channels, kernel_size=3, padding=1),
+            nn.Conv2d(current_channels, out_channels, kernel_size=3, padding=1),
             nn.Sigmoid()
         )
     
@@ -260,39 +278,62 @@ class DiffusersSQVAE(SQVAE):
                 self.size_dict, self.dim_dict, cfgs.quantization.temperature.init, self.param_var_q)
     
     def forward(self, x, flg_train=False, flg_quant_det=True):
+        # 添加一些调试信息
+        if not hasattr(self, 'debug_info_printed'):
+            self.debug_info_printed = True
+            print(f"DiffusersSQVAE模型输入形状: {x.shape}")
+            print(f"使用量化参数: {self.param_var_q}")
+            print(f"量化器类型: {self.quantizer.__class__.__name__}")
+            
         # 编码
-        if self.param_var_q == "vmf":
-            z_from_encoder = F.normalize(self.encoder(x), p=2.0, dim=1)
-            self.param_q = (self.log_param_q_scalar.exp() + torch.tensor([1.0], device="cuda"))
-        else:
-            if self.param_var_q == "gaussian_1":
-                z_from_encoder = self.encoder(x)
-                log_var_q = torch.tensor([0.0], device="cuda")
+        try:
+            if self.param_var_q == "vmf":
+                z_from_encoder = F.normalize(self.encoder(x), p=2.0, dim=1)
+                self.param_q = (self.log_param_q_scalar.exp() + torch.tensor([1.0], device=x.device))
             else:
-                z_from_encoder, log_var = self.encoder(x)
-                if self.param_var_q == "gaussian_2":
-                    log_var_q = log_var.mean(dim=(1,2,3), keepdim=True)
-                elif self.param_var_q == "gaussian_3":
-                    log_var_q = log_var.mean(dim=1, keepdim=True)
-                elif self.param_var_q == "gaussian_4":
-                    log_var_q = log_var
+                if self.param_var_q == "gaussian_1":
+                    z_from_encoder = self.encoder(x)
+                    log_var_q = torch.tensor([0.0], device=x.device)
                 else:
-                    raise Exception("Undefined param_var_q")
-            self.param_q = (log_var_q.exp() + self.log_param_q_scalar.exp())
-        
-        # 量化
-        z_quantized, loss_latent, perplexity = self.quantizer(
-            z_from_encoder, self.param_q, self.codebook, flg_train, flg_quant_det)
-        latents = dict(z_from_encoder=z_from_encoder, z_to_decoder=z_quantized)
+                    z_from_encoder, log_var = self.encoder(x)
+                    if self.param_var_q == "gaussian_2":
+                        log_var_q = log_var.mean(dim=(1,2,3), keepdim=True)
+                    elif self.param_var_q == "gaussian_3":
+                        log_var_q = log_var.mean(dim=1, keepdim=True)
+                    elif self.param_var_q == "gaussian_4":
+                        log_var_q = log_var
+                    else:
+                        raise Exception(f"未定义的param_var_q: {self.param_var_q}")
+                self.param_q = (log_var_q.exp() + self.log_param_q_scalar.exp())
+            
+            if not hasattr(self, 'latent_shape_printed'):
+                self.latent_shape_printed = True
+                print(f"潜在向量形状: {z_from_encoder.shape}")
+            
+            # 量化
+            z_quantized, loss_latent, perplexity = self.quantizer(
+                z_from_encoder, self.param_q, self.codebook, flg_train, flg_quant_det)
+            latents = dict(z_from_encoder=z_from_encoder, z_to_decoder=z_quantized)
 
-        # 解码
-        x_reconst = self.decoder(z_quantized)
+            # 解码
+            x_reconst = self.decoder(z_quantized)
+            
+            if not hasattr(self, 'reconst_shape_printed'):
+                self.reconst_shape_printed = True
+                print(f"重建输出形状: {x_reconst.shape}")
 
-        # 损失
-        loss = self._calc_loss(x_reconst, x, loss_latent)
-        loss["perplexity"] = perplexity
-        
-        return x_reconst, latents, loss
+            # 损失
+            loss = self._calc_loss(x_reconst, x, loss_latent)
+            loss["perplexity"] = perplexity
+            
+            return x_reconst, latents, loss
+        except Exception as e:
+            import traceback
+            print(f"DiffusersSQVAE前向传播错误: {e}")
+            print(f"输入形状: {x.shape}")
+            print(f"量化参数: {self.param_var_q}")
+            traceback.print_exc()
+            raise
 
 
 class DiffusersGaussianSQVAE(DiffusersSQVAE):
