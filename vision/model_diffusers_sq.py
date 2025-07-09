@@ -8,9 +8,12 @@ from quantizer import GaussianVectorQuantizer, VmfVectorQuantizer
 
 # 导入diffusers的组件
 try:
-    # 尝试直接导入diffusers组件
-    from diffusers.models.vae import Encoder, Decoder, DiagonalGaussianDistribution
-    from diffusers.models.resnet import Downsample2D, ResnetBlock2D, Upsample2D
+    # 更新为使用新版diffusers库的导入路径
+    from diffusers.models.autoencoders.autoencoder_kl import AutoencoderKL
+    # 从AutoencoderKL获取编码器和解码器组件
+    from diffusers.models.autoencoders.autoencoder_kl import Encoder, Decoder
+    from diffusers.models.unets.unet_2d_condition import ResnetBlock2D, Downsample2D, Upsample2D
+    
     DIFFUSERS_AVAILABLE = True
     print("成功导入diffusers库组件")
 except ImportError as e:
@@ -25,8 +28,8 @@ except ImportError as e:
         print("diffusers库安装完成，尝试再次导入...")
         
         # 再次尝试导入
-        from diffusers.models.vae import Encoder, Decoder, DiagonalGaussianDistribution
-        from diffusers.models.resnet import Downsample2D, ResnetBlock2D, Upsample2D
+        from diffusers.models.autoencoders.autoencoder_kl import AutoencoderKL, Encoder, Decoder
+        from diffusers.models.unets.unet_2d_condition import ResnetBlock2D, Downsample2D, Upsample2D
         DIFFUSERS_AVAILABLE = True
         print("成功导入diffusers库组件")
     except Exception as install_error:
