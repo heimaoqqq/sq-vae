@@ -4,6 +4,8 @@ from configs.defaults import get_cfgs_defaults
 import torch
 import sys
 import torch.nn as nn
+import time
+import numpy as np
 
 from trainer import GaussianSQVAETrainer, VmfSQVAETrainer, EnhancedGaussianSQVAETrainer
 # 在顶部导入，使其在全局命名空间可用
@@ -186,53 +188,160 @@ if __name__ == "__main__":
                 
                 # 实现必要的方法
                 def _train(self, epoch):
-                    from trainer import GaussianSQVAETrainer
-                    # 使用GaussianSQVAETrainer的训练方法
-                    temp_trainer = GaussianSQVAETrainer.__new__(GaussianSQVAETrainer)
-                    temp_trainer.model = self.model
-                    temp_trainer.optimizer = self.optimizer
-                    temp_trainer.train_loader = self.train_loader
-                    temp_trainer.cfgs = self.cfgs
-                    temp_trainer.flgs = self.flgs
-                    temp_trainer._set_temperature = self._set_temperature
-                    return GaussianSQVAETrainer._train(temp_trainer, epoch)
+                    train_loss = []
+                    ms_error = []
+                    perplexity = []
+                    self.model.train()
+                    start_time = time.time()
+                    print(f"Epoch {epoch}: Training...")
+                    sys.stdout.flush()  # 强制刷新输出缓冲区
+                    
+                    for batch_idx, (x, _) in enumerate(self.train_loader):
+                        x = x.cuda()
+                        if self.flgs.decay:
+                            step = (epoch - 1) * len(self.train_loader) + batch_idx + 1
+                            temperature_current = self._set_temperature(
+                                step, self.cfgs.quantization.temperature)
+                            self.model.module.quantizer.set_temperature(temperature_current)
+                        
+                        _, _, loss = self.model(x, flg_train=True, flg_quant_det=False)
+                        
+                        # 确保所有损失值都是标量
+                        for key in loss:
+                            if isinstance(loss[key], torch.Tensor) and loss[key].numel() > 1:
+                                loss[key] = loss[key].mean()
+                                
+                        self.optimizer.zero_grad()
+                        loss["all"].backward()
+                        self.optimizer.step()
+
+                        train_loss.append(loss["all"].item())
+                        ms_error.append(loss["mse"].item())
+                        perplexity.append(loss["perplexity"].item())
+
+                    result = {}
+                    result["loss"] = np.asarray(train_loss).mean(0)
+                    result["mse"] = np.array(ms_error).mean(0)
+                    result["perplexity"] = np.array(perplexity).mean(0)
+                    self.print_loss(result, "train", time.time()-start_time)
+                    sys.stdout.flush()  # 强制刷新输出缓冲区
+                            
+                    return result  
                 
                 def _test(self, mode="validation"):
-                    from trainer import GaussianSQVAETrainer
-                    # 使用GaussianSQVAETrainer的测试方法
-                    temp_trainer = GaussianSQVAETrainer.__new__(GaussianSQVAETrainer)
-                    temp_trainer.model = self.model
-                    temp_trainer.scheduler = self.scheduler
-                    temp_trainer.val_loader = self.val_loader
-                    temp_trainer.test_loader = self.test_loader
-                    temp_trainer._test_sub = self._test_sub
-                    return GaussianSQVAETrainer._test(temp_trainer, mode)
-                
+                    self.model.eval()
+                    print(f"Epoch evaluation ({mode})...")
+                    sys.stdout.flush()  # 强制刷新输出缓冲区
+                    _ = self._test_sub(False, mode)
+                    result = self._test_sub(True, mode)
+                    self.scheduler.step(result["loss"])
+                    return result
+
                 def _test_sub(self, flg_quant_det, mode="validation"):
-                    from trainer import GaussianSQVAETrainer
-                    # 使用GaussianSQVAETrainer的测试子方法
-                    temp_trainer = GaussianSQVAETrainer.__new__(GaussianSQVAETrainer)
-                    temp_trainer.model = self.model
-                    temp_trainer.val_loader = self.val_loader
-                    temp_trainer.test_loader = self.test_loader
-                    temp_trainer.print_loss = self.print_loss
-                    return GaussianSQVAETrainer._test_sub(temp_trainer, flg_quant_det, mode)
+                    test_loss = []
+                    ms_error = []
+                    perplexity = []
+                    
+                    if mode == "validation":
+                        data_loader = self.val_loader
+                    elif mode == "test":
+                        data_loader = self.test_loader
+                    start_time = time.time()
+                    
+                    with torch.no_grad():
+                        for batch_idx, (x, _) in enumerate(data_loader):
+                            x = x.cuda()
+                            _, _, loss = self.model(x, flg_quant_det=flg_quant_det)
+                            
+                            # 确保所有损失值都是标量
+                            for key in loss:
+                                if isinstance(loss[key], torch.Tensor) and loss[key].numel() > 1:
+                                    loss[key] = loss[key].mean()
+                            
+                            # 收集损失值，转换为标量
+                            test_loss.append(loss["all"].item())
+                            ms_error.append(loss["mse"].item())
+                            perplexity.append(loss["perplexity"].item())
+                                
+                    result = {}
+                    result["loss"] = np.asarray(test_loss).mean(0)
+                    result["mse"] = np.array(ms_error).mean(0)
+                    result["perplexity"] = np.array(perplexity).mean(0)
+                    
+                    self.print_loss(result, mode, time.time()-start_time)
+                    sys.stdout.flush()  # 强制刷新输出缓冲区
+                    
+                    return result
                 
                 def generate_reconstructions(self, filename, nrows=4, ncols=8, individual=False):
-                    from trainer import GaussianSQVAETrainer
-                    # 使用GaussianSQVAETrainer的重建方法
-                    temp_trainer = GaussianSQVAETrainer.__new__(GaussianSQVAETrainer)
-                    temp_trainer.model = self.model
-                    temp_trainer.test_loader = self.test_loader
-                    temp_trainer._generate_reconstructions_continuous = self._generate_reconstructions_continuous
-                    temp_trainer._generate_individual_reconstructions = self._generate_individual_reconstructions
-                    return GaussianSQVAETrainer.generate_reconstructions(temp_trainer, filename, nrows, ncols, individual)
+                    print(f"Generating reconstructions...")
+                    sys.stdout.flush()  # 强制刷新输出缓冲区
+                    if individual:
+                        self._generate_individual_reconstructions(filename, num_images=8)
+                    else:
+                        self._generate_reconstructions_continuous(filename, nrows=nrows, ncols=ncols)
+                    
+                def _generate_reconstructions_continuous(self, filename, nrows=4, ncols=8):
+                    self.model.eval()
+                    x = next(iter(self.test_loader))[0]
+                    x = x[:nrows*ncols].cuda()
+                    output = self.model(x, flg_train=False, flg_quant_det=True)
+                    x_tilde = output[0]
+                    x_cat = torch.cat([x, x_tilde], 0)
+                    images = x_cat.cpu().data.numpy()
+                    from vision.util import plot_images
+                    plot_images(images, filename+".png", nrows=nrows, ncols=ncols)
+                
+                def _generate_individual_reconstructions(self, filename, num_images=8):
+                    """生成单独的原始图像和重建图像文件"""
+                    self.model.eval()
+                    x = next(iter(self.test_loader))[0]
+                    x = x[:num_images].cuda()
+                    output = self.model(x, flg_train=False, flg_quant_det=True)
+                    x_tilde = output[0]
+                    
+                    import os
+                    import matplotlib.pyplot as plt
+                    import numpy as np
+                    
+                    # 创建保存目录
+                    save_dir = filename + "_individual"
+                    if not os.path.exists(save_dir):
+                        os.makedirs(save_dir)
+                        
+                    # 保存原始图像和重建图像
+                    for i in range(num_images):
+                        # 获取原始图像和重建图像
+                        original = x[i].cpu().data.numpy()
+                        reconstructed = x_tilde[i].cpu().data.numpy()
+                        
+                        # 如果是单通道图像，转换为三通道
+                        if original.shape[0] == 1:
+                            original = np.repeat(original, 3, axis=0)
+                            reconstructed = np.repeat(reconstructed, 3, axis=0)
+                        
+                        # 保存原始图像
+                        plt.figure(figsize=(5, 5))
+                        plt.axis('off')
+                        plt.imshow(original.transpose((1, 2, 0)))
+                        plt.savefig(os.path.join(save_dir, f"original_{i}.png"), bbox_inches="tight")
+                        plt.close()
+                        
+                        # 保存重建图像
+                        plt.figure(figsize=(5, 5))
+                        plt.axis('off')
+                        plt.imshow(reconstructed.transpose((1, 2, 0)))
+                        plt.savefig(os.path.join(save_dir, f"reconstructed_{i}.png"), bbox_inches="tight")
+                        plt.close()
                 
                 def print_loss(self, result, mode, time_interval):
-                    from trainer import GaussianSQVAETrainer
-                    # 使用GaussianSQVAETrainer的打印方法
-                    temp_trainer = GaussianSQVAETrainer.__new__(GaussianSQVAETrainer)
-                    return GaussianSQVAETrainer.print_loss(temp_trainer, result, mode, time_interval)
+                    message = mode.capitalize().ljust(16) + \
+                        "Loss: {:5.4f}, MSE: {:5.4f}, Perplexity: {:5.4f}, Time: {:5.3f} sec" \
+                        .format(
+                            result["loss"], result["mse"], result["perplexity"], time_interval
+                        )
+                    print(message)  # 总是打印，忽略noprint标志
+                    sys.stdout.flush()  # 强制刷新输出缓冲区
             
             # 创建训练器实例
             trainer = DiffusersTrainer(cfgs, flgs, train_loader, val_loader, test_loader)
