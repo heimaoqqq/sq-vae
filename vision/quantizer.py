@@ -103,17 +103,39 @@ class GaussianVectorQuantizer(VectorQuantizer):
             bs, width, height, dim_z = z_from_encoder.shape
             total_elements = bs * width * height
             
-            # 调整weight的形状以匹配z_from_encoder的元素数量
-            # weight形状为[bs, 1, width, height]，需要变换为[bs*width*height, 1]
-            weight_permuted = weight.permute(0, 2, 3, 1).contiguous()  # [bs, width, height, 1]
-            
-            # 确保weight_flat的第一维大小与z_continuous_flat相同
-            weight_flat = weight_permuted.reshape(total_elements, 1)  # [bs*width*height, 1]
+            # 打印调试信息
+            # print(f"z_from_encoder shape: {z_from_encoder.shape}")
+            # print(f"weight shape: {weight.shape}")
             
             # 计算z_continuous_flat
             z_continuous_flat = z_from_encoder.reshape(-1, self.dim_dict)  # 使用-1自动计算维度，避免硬编码
             
-            # 添加断言检查确保维度匹配
+            # 适配weight的形状以匹配z_from_encoder的元素数量
+            # 首先处理weight的形状变换，确保它与z_continuous_flat的第一维匹配
+            # 对于gaussian_3模式，weight的形状应为[bs, 1, width, height]
+            
+            # 根据z_continuous_flat的实际大小重新构建weight_flat
+            if weight.shape[0] == bs and z_continuous_flat.shape[0] == bs * width * height:
+                # 需要将weight广播到每个空间位置
+                weight_expanded = weight.expand(bs, width, height, 1)
+                weight_flat = weight_expanded.reshape(-1, 1)
+            else:
+                # 如果weight已经是正确的形状，只需重新整形
+                weight_permuted = weight.permute(0, 2, 3, 1).contiguous()
+                weight_flat = weight_permuted.reshape(-1, 1)
+            
+            # 确保形状匹配
+            if weight_flat.shape[0] != z_continuous_flat.shape[0]:
+                # 如果仍然不匹配，则进行适当的复制或裁剪
+                if weight_flat.shape[0] < z_continuous_flat.shape[0]:
+                    # 需要扩展weight_flat
+                    repeat_factor = z_continuous_flat.shape[0] // weight_flat.shape[0]
+                    weight_flat = weight_flat.repeat(repeat_factor, 1)
+                else:
+                    # 需要裁剪weight_flat
+                    weight_flat = weight_flat[:z_continuous_flat.shape[0], :]
+            
+            # 再次确保形状匹配
             assert weight_flat.shape[0] == z_continuous_flat.shape[0], f"Weight shape {weight_flat.shape[0]} != z_continuous shape {z_continuous_flat.shape[0]}"
             
             # 计算距离
@@ -121,7 +143,6 @@ class GaussianVectorQuantizer(VectorQuantizer):
             c_sq = torch.sum(codebook**2, dim=1)  # [size_dict]
             z_c = torch.matmul(z_continuous_flat, codebook.t())  # [total_elements, size_dict]
             
-            # 确保weight_flat的大小与z_sq相同，以便能够正确广播
             distances = weight_flat * (z_sq + c_sq - 2 * z_c)
         elif self.param_var_q == "gaussian_4":
             # 独立元素方差
