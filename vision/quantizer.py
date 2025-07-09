@@ -75,11 +75,61 @@ class GaussianVectorQuantizer(VectorQuantizer):
                 encodings_hard.scatter_(1, indices, 1)
                 avg_probs = torch.mean(encodings_hard, dim=0)
             else:
+                # 获取实际元素数量以确保正确重塑
+                actual_total_elements = logit.shape[0]  # logit的第一维大小
+                
+                # 采样
                 dist = Categorical(probabilities)
-                indices = dist.sample().view(bs, width, height)
-                encodings_hard = F.one_hot(indices, num_classes=self.size_dict).type_as(codebook)
+                indices = dist.sample()  # 不立即重塑
+                
+                # 计算合适的重塑维度
+                # 首先尝试使用输入提供的bs, width, height
+                expected_elements = bs * width * height
+                
+                if actual_total_elements == expected_elements:
+                    # 如果元素数量匹配，使用原始维度
+                    indices = indices.view(bs, width, height)
+                else:
+                    # 如果不匹配，尝试推断合适的维度
+                    # 假设宽高比保持不变，调整批次大小
+                    adjusted_bs = actual_total_elements // (width * height)
+                    if adjusted_bs * width * height == actual_total_elements:
+                        indices = indices.view(adjusted_bs, width, height)
+                    else:
+                        # 如果仍然无法整除，采用扁平化处理
+                        # 记录原始形状以便后续重塑操作
+                        flat_indices = indices
+                
+                # 使用one-hot编码
+                if 'flat_indices' in locals():
+                    # 如果使用了扁平化处理
+                    encodings_hard = F.one_hot(flat_indices, num_classes=self.size_dict).type_as(codebook)
+                    # 记住，我们需要适当地重塑最终的z_quantized
+                else:
+                    encodings_hard = F.one_hot(indices, num_classes=self.size_dict).type_as(codebook)
+                
                 avg_probs = torch.mean(probabilities, dim=0)
-            z_quantized = torch.matmul(encodings_hard, codebook).view(bs, width, height, dim_z)
+            
+            # 计算z_quantized，确保形状正确
+            if 'flat_indices' in locals():
+                # 如果使用了扁平化处理
+                z_quantized_flat = torch.matmul(encodings_hard, codebook)
+                # 尝试重塑为适当的形状
+                if actual_total_elements % bs == 0:
+                    # 如果可以整除批次大小，调整宽高
+                    new_spatial_dim = int((actual_total_elements / bs) ** 0.5)
+                    if bs * new_spatial_dim * new_spatial_dim == actual_total_elements:
+                        z_quantized = z_quantized_flat.view(bs, new_spatial_dim, new_spatial_dim, dim_z)
+                    else:
+                        # 无法找到合适的正方形尺寸，采用一维表示
+                        z_quantized = z_quantized_flat.view(bs, -1, 1, dim_z)
+                else:
+                    # 如果无法整除批次大小，直接使用一维表示
+                    z_quantized = z_quantized_flat.view(-1, 1, 1, dim_z)
+            else:
+                # 使用标准重塑
+                z_quantized = torch.matmul(encodings_hard, codebook).view(encodings_hard.size(0), width, height, dim_z)
+            
         z_to_decoder = z_quantized.permute(0, 3, 1, 2).contiguous()
         
         # Latent loss
