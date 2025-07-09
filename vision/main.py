@@ -3,6 +3,7 @@ import argparse
 from configs.defaults import get_cfgs_defaults
 import torch
 import sys
+import torch.nn as nn
 
 from trainer import GaussianSQVAETrainer, VmfSQVAETrainer, EnhancedGaussianSQVAETrainer
 # 在顶部导入，使其在全局命名空间可用
@@ -150,16 +151,92 @@ if __name__ == "__main__":
         try:
             # 再次验证模型类可以被正确导入和使用
             print("正在验证DiffusersGaussianSQVAE模型...")
-            model_class = DiffusersGaussianSQVAE
-            print(f"成功验证模型类: {model_class.__name__}")
+            from model_diffusers_sq import DiffusersGaussianSQVAE
+            print(f"成功验证模型类: DiffusersGaussianSQVAE")
             
-            # 直接创建trainer并手动设置模型
-            trainer = GaussianSQVAETrainer(cfgs, flgs, train_loader, val_loader, test_loader)
-            # 替换模型类为DiffusersGaussianSQVAE
-            trainer.model_class = model_class
-            # 重新初始化模型
-            trainer._initialize_model()
-            print("成功初始化DiffusersGaussianSQVAE模型")
+            # 创建一个专用的trainer，不使用GaussianSQVAETrainer
+            from trainer_base import TrainerBase
+            
+            # 创建一个简单的训练器类
+            class DiffusersTrainer(TrainerBase):
+                def __init__(self, cfgs, flgs, train_loader, val_loader, test_loader):
+                    super(DiffusersTrainer, self).__init__(cfgs, flgs, train_loader, val_loader, test_loader)
+                    
+                    # 直接创建DiffusersGaussianSQVAE模型
+                    print("创建DiffusersGaussianSQVAE模型...")
+                    model_instance = DiffusersGaussianSQVAE(cfgs, flgs).cuda()
+                    self.model = nn.DataParallel(model_instance)
+                    
+                    # 创建优化器
+                    self.optimizer = torch.optim.Adam(
+                        self.model.parameters(), lr=self.lr, amsgrad=False)
+                    
+                    # 创建学习率调度器
+                    self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+                        self.optimizer, **self.scheduler_params)
+                    
+                    # 初始化plots字典
+                    self.plots = {
+                        "loss_train": [], "mse_train": [], "perplexity_train": [],
+                        "loss_val": [], "mse_val": [], "perplexity_val": [],
+                        "loss_test": [], "mse_test": [], "perplexity_test": []
+                    }
+                    
+                    print("DiffusersGaussianSQVAE模型创建完成")
+                
+                # 实现必要的方法
+                def _train(self, epoch):
+                    from trainer import GaussianSQVAETrainer
+                    # 使用GaussianSQVAETrainer的训练方法
+                    temp_trainer = GaussianSQVAETrainer.__new__(GaussianSQVAETrainer)
+                    temp_trainer.model = self.model
+                    temp_trainer.optimizer = self.optimizer
+                    temp_trainer.train_loader = self.train_loader
+                    temp_trainer.cfgs = self.cfgs
+                    temp_trainer.flgs = self.flgs
+                    temp_trainer._set_temperature = self._set_temperature
+                    return GaussianSQVAETrainer._train(temp_trainer, epoch)
+                
+                def _test(self, mode="validation"):
+                    from trainer import GaussianSQVAETrainer
+                    # 使用GaussianSQVAETrainer的测试方法
+                    temp_trainer = GaussianSQVAETrainer.__new__(GaussianSQVAETrainer)
+                    temp_trainer.model = self.model
+                    temp_trainer.scheduler = self.scheduler
+                    temp_trainer.val_loader = self.val_loader
+                    temp_trainer.test_loader = self.test_loader
+                    temp_trainer._test_sub = self._test_sub
+                    return GaussianSQVAETrainer._test(temp_trainer, mode)
+                
+                def _test_sub(self, flg_quant_det, mode="validation"):
+                    from trainer import GaussianSQVAETrainer
+                    # 使用GaussianSQVAETrainer的测试子方法
+                    temp_trainer = GaussianSQVAETrainer.__new__(GaussianSQVAETrainer)
+                    temp_trainer.model = self.model
+                    temp_trainer.val_loader = self.val_loader
+                    temp_trainer.test_loader = self.test_loader
+                    temp_trainer.print_loss = self.print_loss
+                    return GaussianSQVAETrainer._test_sub(temp_trainer, flg_quant_det, mode)
+                
+                def generate_reconstructions(self, filename, nrows=4, ncols=8, individual=False):
+                    from trainer import GaussianSQVAETrainer
+                    # 使用GaussianSQVAETrainer的重建方法
+                    temp_trainer = GaussianSQVAETrainer.__new__(GaussianSQVAETrainer)
+                    temp_trainer.model = self.model
+                    temp_trainer.test_loader = self.test_loader
+                    temp_trainer._generate_reconstructions_continuous = self._generate_reconstructions_continuous
+                    temp_trainer._generate_individual_reconstructions = self._generate_individual_reconstructions
+                    return GaussianSQVAETrainer.generate_reconstructions(temp_trainer, filename, nrows, ncols, individual)
+                
+                def print_loss(self, result, mode, time_interval):
+                    from trainer import GaussianSQVAETrainer
+                    # 使用GaussianSQVAETrainer的打印方法
+                    temp_trainer = GaussianSQVAETrainer.__new__(GaussianSQVAETrainer)
+                    return GaussianSQVAETrainer.print_loss(temp_trainer, result, mode, time_interval)
+            
+            # 创建训练器实例
+            trainer = DiffusersTrainer(cfgs, flgs, train_loader, val_loader, test_loader)
+            print("成功初始化DiffusersGaussianSQVAE训练器")
         except Exception as e:
             print(f"初始化DiffusersGaussianSQVAE模型时出错: {e}")
             import traceback

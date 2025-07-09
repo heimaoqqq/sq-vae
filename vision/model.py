@@ -35,12 +35,20 @@ class SQVAE(nn.Module):
         # Encoder/decoder
         self.param_var_q = cfgs.model.param_var_q
         
-        # 处理增强型网络的特殊情况
+        # 处理特殊网络类型
         if cfgs.network.name == "enhanced_resnet":
+            # 增强型ResNet网络
             self.encoder = net_microdoppler_enhanced.EncoderVq_enhanced_resnet(
                 cfgs.quantization.dim_dict, cfgs.network, flgs.bn, flgs.var_q)
             self.decoder = net_microdoppler_enhanced.DecoderVq_enhanced_resnet(
                 cfgs.quantization.dim_dict, cfgs.network, flgs.bn)
+        elif cfgs.network.name == "diffusers":
+            # 使用diffusers网络时，不在这里创建编码器和解码器
+            # 这些将在DiffusersGaussianSQVAE类中创建
+            self.encoder = None
+            self.decoder = None
+            # 提前返回，不应用weights_init和不创建量化器
+            return
         else:
             # 使用标准网络
             self.encoder = eval("net_{}.EncoderVq_{}".format(dataset.lower(), cfgs.network.name))(
@@ -105,6 +113,10 @@ class SQVAE(nn.Module):
 class GaussianSQVAE(SQVAE):
     def __init__(self, cfgs, flgs):
         super(GaussianSQVAE, self).__init__(cfgs, flgs)
+        # 如果使用diffusers网络，则跳过初始化，因为父类已经返回
+        if cfgs.network.name == "diffusers":
+            return
+            
         self.flg_arelbo = flgs.arelbo # Use MLE for optimization of decoder variance
         if not self.flg_arelbo:
             self.logvar_x = nn.Parameter(torch.tensor(np.log(0.1)))
@@ -123,7 +135,7 @@ class GaussianSQVAE(SQVAE):
         loss_all = loss_reconst + loss_latent
         loss = dict(all=loss_all, mse=mse)
 
-        return loss 
+        return loss
 
 
 class VmfSQVAE(SQVAE):
