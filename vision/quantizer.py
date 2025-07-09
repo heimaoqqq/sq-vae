@@ -101,11 +101,19 @@ class GaussianVectorQuantizer(VectorQuantizer):
             distances = weight * calc_distance(z_from_encoder, codebook, self.dim_dict)
         elif self.param_var_q == "gaussian_3":
             # 在gaussian_3中，权重是在通道维度上计算均值
-            # 我们需要将权重扩展到与z_from_encoder相同的空间维度
+            # 首先计算输入张量的形状
             bs, width, height, dim_z = z_from_encoder.shape
-            # 将权重从[bs, 1, 1, 1]扩展到[bs, width, height, 1]，然后展平
-            weight = weight.expand(-1, width, height, -1).reshape(-1, 1)
-            distances = weight * calc_distance(z_from_encoder, codebook, self.dim_dict)
+            # 计算z_continuous_flat的形状
+            z_continuous_flat = z_from_encoder.view(-1, self.dim_dict)
+            # 将权重调整为与z_continuous_flat相同的第一维大小
+            # weight形状为[bs, 1, 1, 1]，需要展开为[bs*width*height, 1]
+            weight_expanded = weight.expand(bs, width, height, 1).reshape(-1, 1)
+            
+            # 计算距离，确保weight_expanded与z_continuous_flat的第一维匹配
+            z_sq = torch.sum(z_continuous_flat**2, dim=1, keepdim=True)
+            c_sq = torch.sum(codebook**2, dim=1)
+            z_c = torch.matmul(z_continuous_flat, codebook.t())
+            distances = weight_expanded * (z_sq + c_sq - 2 * z_c)
         elif self.param_var_q == "gaussian_4":
             # 在gaussian_4中，权重直接使用网络预测的每个位置的方差
             # 我们需要将z_from_encoder和权重重塑为适当的形状进行计算
