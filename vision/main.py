@@ -7,26 +7,51 @@ import torch.nn as nn
 import time
 import numpy as np
 
-from trainer import GaussianSQVAETrainer, VmfSQVAETrainer, EnhancedGaussianSQVAETrainer
+from trainer import GaussianSQVAETrainer, VmfSQVAETrainer
+
+# 检查并安装diffusers库（如果需要）
+try:
+    import importlib
+    if importlib.util.find_spec("diffusers") is None:
+        print("diffusers库未安装，尝试安装...")
+        import subprocess
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "diffusers", "--quiet"])
+        print("diffusers库安装完成")
+    else:
+        print("检测到diffusers库已安装")
+except Exception as e:
+    print(f"检查或安装diffusers库时出错: {e}")
+
 # 在顶部导入，使其在全局命名空间可用
 try:
-    # 使用绝对导入路径
-    from vision.model_diffusers_sq import DiffusersGaussianSQVAE
-    DIFFUSERS_MODEL_AVAILABLE = True
-    print("成功导入DiffusersGaussianSQVAE模型")
-except ImportError as e:
-    # 尝试相对导入
+    # 首先尝试相对导入（适用于直接运行main.py的情况）
     try:
-        # 将当前目录添加到导入路径
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        if current_dir not in sys.path:
-            sys.path.append(current_dir)
         from model_diffusers_sq import DiffusersGaussianSQVAE
         DIFFUSERS_MODEL_AVAILABLE = True
-        print("成功导入DiffusersGaussianSQVAE模型")
+        print("成功导入DiffusersGaussianSQVAE模型（相对导入）")
     except ImportError as e:
-        print(f"无法导入DiffusersGaussianSQVAE模型: {e}")
-        DIFFUSERS_MODEL_AVAILABLE = False
+        # 然后尝试绝对导入（适用于作为包导入的情况）
+        try:
+            from vision.model_diffusers_sq import DiffusersGaussianSQVAE
+            DIFFUSERS_MODEL_AVAILABLE = True
+            print("成功导入DiffusersGaussianSQVAE模型（绝对导入）")
+        except ImportError as e:
+            # 最后尝试添加当前目录到sys.path
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            if current_dir not in sys.path:
+                sys.path.append(current_dir)
+                print(f"已将{current_dir}添加到Python路径")
+            try:
+                from model_diffusers_sq import DiffusersGaussianSQVAE
+                DIFFUSERS_MODEL_AVAILABLE = True
+                print("成功导入DiffusersGaussianSQVAE模型（添加路径后）")
+            except ImportError as e:
+                print(f"所有导入尝试均失败: {e}")
+                DIFFUSERS_MODEL_AVAILABLE = False
+except Exception as e:
+    print(f"导入DiffusersGaussianSQVAE模型时发生未知错误: {e}")
+    DIFFUSERS_MODEL_AVAILABLE = False
+
 from util import set_seeds, get_loader
 
 
@@ -54,7 +79,7 @@ def load_config(args):
     config_path = os.path.join(os.path.dirname(__file__), "configs", args.config_file)
     print(config_path)
     
-    # 直接使用原始配置文件
+        # 直接使用原始配置文件
     try:
         cfgs.merge_from_file(config_path)
     except Exception as e:
@@ -91,7 +116,7 @@ def load_config(args):
     if cfgs.model.name.lower() == "vmfsqvae":
         cfgs.quantization.dim_dict += 1
     cfgs.flags.var_q = not(cfgs.model.param_var_q=="gaussian_1" or
-                                      cfgs.model.param_var_q=="vmf")
+                                        cfgs.model.param_var_q=="vmf")
     cfgs.freeze()
     flgs = cfgs.flags
     return cfgs, flgs
@@ -135,8 +160,7 @@ if __name__ == "__main__":
         trainer = GaussianSQVAETrainer(cfgs, flgs, train_loader, val_loader, test_loader)
     elif cfgs.model.name == "VmfSQVAE":
         trainer = VmfSQVAETrainer(cfgs, flgs, train_loader, val_loader, test_loader)
-    elif cfgs.model.name == "EnhancedGaussianSQVAE":
-        trainer = EnhancedGaussianSQVAETrainer(cfgs, flgs, train_loader, val_loader, test_loader)
+    # EnhancedGaussianSQVAE已被移除，请使用DiffusersGaussianSQVAE
     elif cfgs.model.name == "DiffusersGaussianSQVAE":
         # 检查Diffusers模型是否可用
         if not DIFFUSERS_MODEL_AVAILABLE:
