@@ -5,6 +5,7 @@ import torch
 import sys
 
 from trainer import GaussianSQVAETrainer, VmfSQVAETrainer, EnhancedGaussianSQVAETrainer
+from model_diffusers_sq import DiffusersGaussianSQVAE  # 导入新模型
 from util import set_seeds, get_loader
 
 
@@ -86,6 +87,11 @@ if __name__ == "__main__":
         trainer = VmfSQVAETrainer(cfgs, flgs, train_loader, val_loader, test_loader)
     elif cfgs.model.name == "EnhancedGaussianSQVAE":
         trainer = EnhancedGaussianSQVAETrainer(cfgs, flgs, train_loader, val_loader, test_loader)
+    elif cfgs.model.name == "DiffusersGaussianSQVAE":
+        # 使用现有的GaussianSQVAETrainer训练新模型
+        trainer = GaussianSQVAETrainer(cfgs, flgs, train_loader, val_loader, test_loader)
+        # 替换模型类为DiffusersGaussianSQVAE
+        trainer.model_class = DiffusersGaussianSQVAE
     else:
         raise Exception(f"Undefined model: {cfgs.model.name}")
 

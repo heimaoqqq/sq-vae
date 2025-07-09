@@ -1,0 +1,40 @@
+path_specific: "microdoppler_diffusers_sqvae_gaussian_3/"
+
+dataset:
+  name: 'MicroDoppler'
+  shape: (3, 64, 64)
+  dim_x: 12288 # 3 * 64 * 64
+
+model:
+  name: "DiffusersGaussianSQVAE"  # 使用Diffusers架构的SQ-VAE
+  log_param_q_init: 2.995732273553991 # log(20.0)
+  param_var_q: "gaussian_3"
+
+network:
+  name: "diffusers"  # 标记使用diffusers架构
+  # 编码器配置
+  encoder:
+    down_block_types: ["DownEncoderBlock2D", "DownEncoderBlock2D", "DownEncoderBlock2D"]  # 3级下采样
+    block_out_channels: [128, 256, 512]  # 通道数逐级增加
+    layers_per_block: 2  # 每个块中的层数
+  # 解码器配置
+  decoder:
+    up_block_types: ["UpDecoderBlock2D", "UpDecoderBlock2D", "UpDecoderBlock2D"]  # 3级上采样
+    block_out_channels: [512, 256, 128]  # 通道数逐级减少
+    layers_per_block: 2  # 每个块中的层数
+
+train:
+  bs: 32
+  lr: 0.001
+  epoch_max: 100
+
+quantization:
+  size_dict: 512
+  dim_dict: 64
+  temperature:
+    init: 1.0
+    decay: 1e-5
+    min: 0.0
+
+processing:
+  method: "downsample"  # 使用下采样而非resize 
