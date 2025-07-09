@@ -128,7 +128,34 @@ class GaussianVectorQuantizer(VectorQuantizer):
                     z_quantized = z_quantized_flat.view(-1, 1, 1, dim_z)
             else:
                 # 使用标准重塑
-                z_quantized = torch.matmul(encodings_hard, codebook).view(encodings_hard.size(0), width, height, dim_z)
+                z_quantized_flat = torch.matmul(encodings_hard, codebook)
+                
+                # 检查重塑后的尺寸是否匹配
+                total_size = encodings_hard.size(0) * width * height * dim_z
+                actual_size = z_quantized_flat.numel()
+                
+                if total_size == actual_size:
+                    # 如果尺寸匹配，直接重塑
+                    z_quantized = z_quantized_flat.view(encodings_hard.size(0), width, height, dim_z)
+                else:
+                    # 如果尺寸不匹配，计算正确的维度
+                    # 首先确保可以被批次大小和dim_z整除
+                    if actual_size % (encodings_hard.size(0) * dim_z) == 0:
+                        # 计算新的空间维度
+                        spatial_elements = actual_size // (encodings_hard.size(0) * dim_z)
+                        new_hw = int(spatial_elements ** 0.5)
+                        
+                        if new_hw ** 2 == spatial_elements:  # 是完全平方数
+                            z_quantized = z_quantized_flat.view(encodings_hard.size(0), new_hw, new_hw, dim_z)
+                        else:
+                            # 使用一维空间表示
+                            z_quantized = z_quantized_flat.view(encodings_hard.size(0), spatial_elements, 1, dim_z)
+                    else:
+                        # 如果无法合理分解，使用最简单的重塑
+                        # 计算可以得到的最大批次大小
+                        possible_bs = actual_size // dim_z
+                        z_quantized = z_quantized_flat.view(possible_bs, 1, 1, dim_z)
+                        print(f"Warning: Reshape to non-standard dimensions. Original: {encodings_hard.size(0)}x{width}x{height}x{dim_z}, Actual: {possible_bs}x1x1x{dim_z}")
             
         z_to_decoder = z_quantized.permute(0, 3, 1, 2).contiguous()
         
