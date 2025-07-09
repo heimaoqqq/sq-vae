@@ -17,13 +17,20 @@ import time
 class GaussianSQVAETrainer(TrainerBase):
     def __init__(self, cfgs, flgs, train_loader, val_loader, test_loader):
         super(GaussianSQVAETrainer, self).__init__(cfgs, flgs, train_loader, val_loader, test_loader)
+        
+        # 从model_enhanced导入GaussianSQVAE
+        from model import GaussianSQVAE
         self.model_class = GaussianSQVAE
+        
+        # 初始化模型
+        self._initialize_model()
+        
         self.plots = {
             "loss_train": [], "mse_train": [], "perplexity_train": [],
             "loss_val": [], "mse_val": [], "perplexity_val": [],
             "loss_test": [], "mse_test": [], "perplexity_test": []
         }
-
+        
     def _train(self, epoch):
         train_loss = []
         ms_error = []
@@ -55,7 +62,7 @@ class GaussianSQVAETrainer(TrainerBase):
             train_loss.append(loss["all"].item())
             ms_error.append(loss["mse"].item())
             perplexity.append(loss["perplexity"].item())
-                
+
         result = {}
         result["loss"] = np.asarray(train_loss).mean(0)
         result["mse"] = np.array(ms_error).mean(0)
@@ -123,7 +130,7 @@ class GaussianSQVAETrainer(TrainerBase):
         sys.stdout.flush()  # 强制刷新输出缓冲区
         
         return result
-        
+    
     def _make_epoch_logger(self, train_result, val_result):
         self.plots["loss_train"].append(train_result["loss"])
         self.plots["mse_train"].append(train_result["mse"])
@@ -158,8 +165,13 @@ class EnhancedGaussianSQVAETrainer(GaussianSQVAETrainer):
     def __init__(self, cfgs, flgs, train_loader, val_loader, test_loader):
         # 首先调用父类初始化
         super(EnhancedGaussianSQVAETrainer, self).__init__(cfgs, flgs, train_loader, val_loader, test_loader)
+        
         # 替换模型类为增强型模型
+        from model_enhanced import EnhancedGaussianSQVAE
         self.model_class = EnhancedGaussianSQVAE
+        
+        # 重新初始化模型
+        self._initialize_model()
         
         # 扩展plots字典以包含额外损失项
         self.plots.update({
@@ -418,12 +430,18 @@ class EnhancedGaussianSQVAETrainer(GaussianSQVAETrainer):
 class VmfSQVAETrainer(TrainerBase):
     def __init__(self, cfgs, flgs, train_loader, val_loader, test_loader):
         super(VmfSQVAETrainer, self).__init__(cfgs, flgs, train_loader, val_loader, test_loader)
+        
+        # 从model导入VmfSQVAE
+        from model import VmfSQVAE
         self.model_class = VmfSQVAE
-        self.metric_semseg = SegmentationMetric(cfgs.network.num_class)
+        
+        # 初始化模型
+        self._initialize_model()
+        
         self.plots = {
-            "loss_train": [], "acc_train": [], "perplexity_train": [],
-            "loss_val": [], "acc_val": [], "perplexity_val": [], "miou_val": [],
-            "loss_test": [], "acc_test": [], "perplexity_test": [], "miou_test": []
+            "loss_train": [], "mse_train": [], "perplexity_train": [],
+            "loss_val": [], "mse_val": [], "perplexity_val": [],
+            "loss_test": [], "mse_test": [], "perplexity_test": []
         }
     
     def _train(self, epoch):
@@ -524,12 +542,12 @@ class VmfSQVAETrainer(TrainerBase):
         self.plots["perplexity_val"].append(val_result["perplexity"])
         
     def generate_reconstructions(self, filename, nrows=4, ncols=8, individual=False):
-        print(f"Generating reconstructions...")
-        sys.stdout.flush()  # 强制刷新输出缓冲区
+        print(f"Generating VmfSQVAE reconstructions...")
+        sys.stdout.flush()
         if individual:
             self._generate_individual_reconstructions(filename, num_images=8)
         else:
-            self._generate_reconstructions_discrete(filename, nrows=nrows, ncols=ncols)
+            self._generate_reconstructions_continuous(filename, nrows=nrows, ncols=ncols)
     
     def print_loss(self, result, mode, time_interval):
         message = mode.capitalize().ljust(16) + \

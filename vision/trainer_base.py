@@ -16,14 +16,47 @@ class TrainerBase(nn.Module):
         self.train_loader = train_loader
         self.val_loader = val_loader
         self.test_loader = test_loader
-        self.model = eval(
-            "nn.DataParallel({}(cfgs, flgs).cuda())".format(cfgs.model.name))
+        
+        # 初始化模型和优化器属性，但不创建实例
+        self.model = None
+        self.model_class = None  # 子类需要设置此属性
+        self.optimizer = None
+        
+        # 设置优化器参数
+        self.lr = cfgs.train.lr
+        
+        # 创建调度器
+        self.scheduler_params = {
+            "mode": "min", 
+            "factor": 0.5, 
+            "patience": 3,
+            "verbose": True, 
+            "threshold": 0.0001, 
+            "threshold_mode": "rel",
+            "cooldown": 0, 
+            "min_lr": 0, 
+            "eps": 1e-08
+        }
+        
+    def _initialize_model(self):
+        """初始化模型和优化器，需要在子类中调用"""
+        if self.model_class is None:
+            raise ValueError("子类必须设置model_class属性")
+        
+        # 输出模型信息
+        print(f"初始化模型: {self.model_class.__name__}")
+        
+        # 创建模型实例
+        model_instance = self.model_class(self.cfgs, self.flgs).cuda()
+        self.model = nn.DataParallel(model_instance)
+        
+        # 创建优化器
         self.optimizer = torch.optim.Adam(
-            self.model.parameters(), lr=cfgs.train.lr, amsgrad=False)
+            self.model.parameters(), lr=self.lr, amsgrad=False)
+        
+        # 创建学习率调度器
         self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            self.optimizer, mode="min", factor=0.5, patience=3,
-            verbose=True, threshold=0.0001, threshold_mode="rel",
-            cooldown=0, min_lr=0, eps=1e-08)
+            self.optimizer, **self.scheduler_params)
     
     def load(self, timestamp=""):
         if timestamp != "":

@@ -1,40 +1,55 @@
-path_specific: "microdoppler_diffusers_sqvae_gaussian_3/"
-
 dataset:
-  name: 'MicroDoppler'
-  shape: (3, 64, 64)
-  dim_x: 12288 # 3 * 64 * 64
+  name: MicroDoppler
+  dim_x: 12288
+  shape: [3, 64, 64]
 
 model:
-  name: "DiffusersGaussianSQVAE"  # 使用Diffusers架构的SQ-VAE
-  log_param_q_init: 2.995732273553991 # log(20.0)
-  param_var_q: "gaussian_3"
+  name: DiffusersGaussianSQVAE
+  param_var_q: gaussian_3
+  log_param_q_init: 2.995732273553991
 
-network:
-  name: "diffusers"  # 标记使用diffusers架构
-  # 编码器配置
-  encoder:
-    down_block_types: ["DownEncoderBlock2D", "DownEncoderBlock2D", "DownEncoderBlock2D"]  # 3级下采样
-    block_out_channels: [128, 256, 512]  # 通道数逐级增加
-    layers_per_block: 2  # 每个块中的层数
-  # 解码器配置
-  decoder:
-    up_block_types: ["UpDecoderBlock2D", "UpDecoderBlock2D", "UpDecoderBlock2D"]  # 3级上采样
-    block_out_channels: [512, 256, 128]  # 通道数逐级减少
-    layers_per_block: 2  # 每个块中的层数
+quantization:
+  dim_dict: 64
+  size_dict: 512
+  temperature:
+    init: 1.0
+    decay: 0.00001
+    min: 0.0
 
 train:
+  seed: 0
   bs: 32
   lr: 0.001
   epoch_max: 100
 
-quantization:
-  size_dict: 512
-  dim_dict: 64
-  temperature:
-    init: 1.0
-    decay: 1e-5
-    min: 0.0
+test:
+  bs: 50
 
+flags:
+  save: True
+  arelbo: True
+  bn: True
+  decay: True
+  var_q: True
+  noprint: False
+
+network:
+  name: diffusers
+  encoder:
+    block_out_channels: [128, 256, 512]
+    down_block_types: ["DownEncoderBlock2D", "DownEncoderBlock2D", "DownEncoderBlock2D"]
+    layers_per_block: 2
+  decoder:
+    block_out_channels: [512, 256, 128]
+    up_block_types: ["UpDecoderBlock2D", "UpDecoderBlock2D", "UpDecoderBlock2D"]
+    layers_per_block: 2
+
+nworker: 4
 processing:
-  method: "downsample"  # 使用下采样而非resize 
+  method: downsample
+
+path: /kaggle/working/outputs
+path_specific: microdoppler_diffusers_sqvae_gaussian_3/
+path_dataset: /kaggle/input/dataset
+
+list_dir_for_copy: ['', 'networks/'] 

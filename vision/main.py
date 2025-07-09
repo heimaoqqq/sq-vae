@@ -5,7 +5,25 @@ import torch
 import sys
 
 from trainer import GaussianSQVAETrainer, VmfSQVAETrainer, EnhancedGaussianSQVAETrainer
-from model_diffusers_sq import DiffusersGaussianSQVAE  # 导入新模型
+# 在顶部导入，使其在全局命名空间可用
+try:
+    # 使用绝对导入路径
+    from vision.model_diffusers_sq import DiffusersGaussianSQVAE
+    DIFFUSERS_MODEL_AVAILABLE = True
+    print("成功导入DiffusersGaussianSQVAE模型")
+except ImportError as e:
+    # 尝试相对导入
+    try:
+        # 将当前目录添加到导入路径
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        if current_dir not in sys.path:
+            sys.path.append(current_dir)
+        from model_diffusers_sq import DiffusersGaussianSQVAE
+        DIFFUSERS_MODEL_AVAILABLE = True
+        print("成功导入DiffusersGaussianSQVAE模型")
+    except ImportError as e:
+        print(f"无法导入DiffusersGaussianSQVAE模型: {e}")
+        DIFFUSERS_MODEL_AVAILABLE = False
 from util import set_seeds, get_loader
 
 
@@ -32,7 +50,36 @@ def load_config(args):
     cfgs = get_cfgs_defaults()
     config_path = os.path.join(os.path.dirname(__file__), "configs", args.config_file)
     print(config_path)
-    cfgs.merge_from_file(config_path)
+    
+    # 直接使用原始配置文件
+    try:
+        cfgs.merge_from_file(config_path)
+    except Exception as e:
+        print(f"配置加载失败: {e}")
+        # 尝试手动解析YAML
+        try:
+            import yaml
+            # 尝试使用UTF-8编码读取
+            try:
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    config_data = yaml.safe_load(f)
+            except UnicodeDecodeError:
+                # 如果失败，尝试使用latin-1编码
+                with open(config_path, 'r', encoding='latin-1') as f:
+                    config_data = yaml.safe_load(f)
+            
+            # 手动设置配置
+            for section, values in config_data.items():
+                if isinstance(values, dict):
+                    for key, value in values.items():
+                        setattr(getattr(cfgs, section), key, value)
+                else:
+                    setattr(cfgs, section, values)
+            print("已使用手动解析的方式加载配置")
+        except Exception as e2:
+            print(f"手动解析配置也失败: {e2}")
+            raise e
+    
     cfgs.train.seed = args.seed
     cfgs.flags.save = args.save
     cfgs.flags.noprint = False  # 强制启用日志输出，覆盖--dbg参数
@@ -41,7 +88,7 @@ def load_config(args):
     if cfgs.model.name.lower() == "vmfsqvae":
         cfgs.quantization.dim_dict += 1
     cfgs.flags.var_q = not(cfgs.model.param_var_q=="gaussian_1" or
-                                        cfgs.model.param_var_q=="vmf")
+                                      cfgs.model.param_var_q=="vmf")
     cfgs.freeze()
     flgs = cfgs.flags
     return cfgs, flgs
@@ -88,10 +135,36 @@ if __name__ == "__main__":
     elif cfgs.model.name == "EnhancedGaussianSQVAE":
         trainer = EnhancedGaussianSQVAETrainer(cfgs, flgs, train_loader, val_loader, test_loader)
     elif cfgs.model.name == "DiffusersGaussianSQVAE":
-        # 使用现有的GaussianSQVAETrainer训练新模型
-        trainer = GaussianSQVAETrainer(cfgs, flgs, train_loader, val_loader, test_loader)
-        # 替换模型类为DiffusersGaussianSQVAE
-        trainer.model_class = DiffusersGaussianSQVAE
+        # 检查Diffusers模型是否可用
+        if not DIFFUSERS_MODEL_AVAILABLE:
+            print("=" * 50)
+            print("错误: 无法使用DiffusersGaussianSQVAE模型")
+            print("请确认以下几点:")
+            print("1. diffusers库已正确安装且可访问")
+            print("2. vision/model_diffusers_sq.py文件存在且可正确导入")
+            print("3. 环境中的Python路径正确配置")
+            print("=" * 50)
+            raise ImportError("无法使用DiffusersGaussianSQVAE模型，请检查日志中的详细信息")
+        
+        # 确保model_diffusers_sq.py中的模型可以被导入
+        try:
+            # 再次验证模型类可以被正确导入和使用
+            print("正在验证DiffusersGaussianSQVAE模型...")
+            model_class = DiffusersGaussianSQVAE
+            print(f"成功验证模型类: {model_class.__name__}")
+            
+            # 直接创建trainer并手动设置模型
+            trainer = GaussianSQVAETrainer(cfgs, flgs, train_loader, val_loader, test_loader)
+            # 替换模型类为DiffusersGaussianSQVAE
+            trainer.model_class = model_class
+            # 重新初始化模型
+            trainer._initialize_model()
+            print("成功初始化DiffusersGaussianSQVAE模型")
+        except Exception as e:
+            print(f"初始化DiffusersGaussianSQVAE模型时出错: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
     else:
         raise Exception(f"Undefined model: {cfgs.model.name}")
 
