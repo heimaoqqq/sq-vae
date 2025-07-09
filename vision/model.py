@@ -106,7 +106,7 @@ class SQVAE(nn.Module):
         
         return x_reconst, latents, loss
     
-    def _calc_loss(self):
+    def _calc_loss(self, x_reconst, x, loss_latent):
         raise NotImplementedError()
     
 
@@ -135,7 +135,7 @@ class GaussianSQVAE(SQVAE):
         loss_all = loss_reconst + loss_latent
         loss = dict(all=loss_all, mse=mse)
 
-        return loss
+        return loss 
 
 
 class VmfSQVAE(SQVAE):
