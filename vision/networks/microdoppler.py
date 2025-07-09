@@ -5,56 +5,58 @@ from networks.util import ResBlock, get_activation
 
 class EncoderVq_resnet(EncoderVqResnet64):
     def __init__(self, dim_z, cfgs, flg_bn, flg_var_q):
-        # 安全获取通道乘数，确保cfgs有network属性
-        channel_multiplier = 1.0
-        activation = "relu"
+        # 获取通道乘数和激活函数类型
+        channel_multiplier = getattr(cfgs, "channel_multiplier", 1.0)
+        activation_type = getattr(cfgs, "activation", "relu")
         
-        # 检查cfgs是否包含network属性
-        if hasattr(cfgs, 'network'):
-            channel_multiplier = getattr(cfgs.network, "channel_multiplier", 1.0)
-            activation = getattr(cfgs.network, "activation", "relu")
-        
+        # 应用通道乘数
         adjusted_dim_z = int(dim_z * channel_multiplier)
-        self.activation = activation
         
+        # 保存激活函数类型供后续使用
+        self.activation_type = activation_type
+        
+        # 调用父类构造函数
         super(EncoderVq_resnet, self).__init__(adjusted_dim_z, cfgs, flg_bn, flg_var_q)
         self.dataset = "MicroDoppler"
         
-        # 如果指定了自定义激活函数，重新构建ResBlock
-        if self.activation != "relu" and hasattr(cfgs, 'network') and hasattr(cfgs.network, 'num_rb'):
-            # 重新构建ResBlock部分
-            num_rb = cfgs.network.num_rb
+        # 如果使用非默认激活函数，重新构建ResBlock部分
+        if activation_type != "relu":
+            # 获取ResBlock数量
+            num_rb = getattr(cfgs, "num_rb", 6)  # 默认为6个ResBlock
+            
+            # 重建ResBlock层
             layers_resblocks = []
             for i in range(num_rb-1):
-                layers_resblocks.append(ResBlock(adjusted_dim_z, activation=self.activation))
+                layers_resblocks.append(ResBlock(adjusted_dim_z, activation=activation_type))
             self.res = nn.Sequential(*layers_resblocks)
-            self.res_m = ResBlock(adjusted_dim_z, activation=self.activation)
+            self.res_m = ResBlock(adjusted_dim_z, activation=activation_type)
             if self.flg_variance:
-                self.res_v = ResBlock(adjusted_dim_z, activation=self.activation)
+                self.res_v = ResBlock(adjusted_dim_z, activation=activation_type)
 
 
 class DecoderVq_resnet(DecoderVqResnet64):
     def __init__(self, dim_z, cfgs, flg_bn):
-        # 安全获取通道乘数，确保cfgs有network属性
-        channel_multiplier = 1.0
-        activation = "relu"
+        # 获取通道乘数和激活函数类型
+        channel_multiplier = getattr(cfgs, "channel_multiplier", 1.0)
+        activation_type = getattr(cfgs, "activation", "relu")
         
-        # 检查cfgs是否包含network属性
-        if hasattr(cfgs, 'network'):
-            channel_multiplier = getattr(cfgs.network, "channel_multiplier", 1.0)
-            activation = getattr(cfgs.network, "activation", "relu")
-        
+        # 应用通道乘数
         adjusted_dim_z = int(dim_z * channel_multiplier)
-        self.activation = activation
         
+        # 保存激活函数类型供后续使用
+        self.activation_type = activation_type
+        
+        # 调用父类构造函数
         super(DecoderVq_resnet, self).__init__(adjusted_dim_z, cfgs, flg_bn)
         self.dataset = "MicroDoppler"
         
-        # 如果指定了自定义激活函数，重新构建ResBlock
-        if self.activation != "relu" and hasattr(cfgs, 'network') and hasattr(cfgs.network, 'num_rb'):
-            # 重新构建ResBlock部分
-            num_rb = cfgs.network.num_rb
+        # 如果使用非默认激活函数，重新构建ResBlock部分
+        if activation_type != "relu":
+            # 获取ResBlock数量
+            num_rb = getattr(cfgs, "num_rb", 6)  # 默认为6个ResBlock
+            
+            # 重建ResBlock层
             layers_resblocks = []
             for i in range(num_rb-1):
-                layers_resblocks.append(ResBlock(adjusted_dim_z, activation=self.activation))
+                layers_resblocks.append(ResBlock(adjusted_dim_z, activation=activation_type))
             self.res = nn.Sequential(*layers_resblocks) 
