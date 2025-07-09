@@ -1,5 +1,5 @@
 path_specific: "microdoppler_sqvae_gaussian_1/"
-
+  
 dataset:
   name: 'MicroDoppler'
   shape: (3, 64, 64)
@@ -21,4 +21,4 @@ train:
 
 quantization:
   size_dict: 512
-  dim_dict: 64 
+  dim_dict: 64

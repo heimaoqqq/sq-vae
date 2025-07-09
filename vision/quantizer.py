@@ -107,11 +107,14 @@ class GaussianVectorQuantizer(VectorQuantizer):
             # weight形状为[bs, 1, width, height]，需要变换为[bs*width*height, 1]
             weight_permuted = weight.permute(0, 2, 3, 1).contiguous()  # [bs, width, height, 1]
             
-            # 确保weight_flat的第一维大小与z_from_encoder_flat相同
+            # 确保weight_flat的第一维大小与z_continuous_flat相同
             weight_flat = weight_permuted.reshape(total_elements, 1)  # [bs*width*height, 1]
             
             # 计算z_continuous_flat
-            z_continuous_flat = z_from_encoder.reshape(total_elements, self.dim_dict)
+            z_continuous_flat = z_from_encoder.reshape(-1, self.dim_dict)  # 使用-1自动计算维度，避免硬编码
+            
+            # 添加断言检查确保维度匹配
+            assert weight_flat.shape[0] == z_continuous_flat.shape[0], f"Weight shape {weight_flat.shape[0]} != z_continuous shape {z_continuous_flat.shape[0]}"
             
             # 计算距离
             z_sq = torch.sum(z_continuous_flat**2, dim=1, keepdim=True)  # [total_elements, 1]
@@ -119,8 +122,6 @@ class GaussianVectorQuantizer(VectorQuantizer):
             z_c = torch.matmul(z_continuous_flat, codebook.t())  # [total_elements, size_dict]
             
             # 确保weight_flat的大小与z_sq相同，以便能够正确广播
-            assert weight_flat.shape[0] == z_sq.shape[0], f"Weight shape {weight_flat.shape} != z_sq shape {z_sq.shape}"
-            
             distances = weight_flat * (z_sq + c_sq - 2 * z_c)
         elif self.param_var_q == "gaussian_4":
             # 独立元素方差

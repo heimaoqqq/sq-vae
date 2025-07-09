@@ -29,7 +29,8 @@ def arg_parse():
 
 def load_config(args):
     cfgs = get_cfgs_defaults()
-    config_path = os.path.join(os.path.dirname(__file__), "configs", args.config_file)
+    # 直接使用提供的配置文件路径，不再拼接
+    config_path = args.config_file
     print(config_path)
     cfgs.merge_from_file(config_path)
     cfgs.train.seed = args.seed
