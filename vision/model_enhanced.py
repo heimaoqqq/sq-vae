@@ -2,10 +2,9 @@ import numpy as np
 import torch
 from torch import nn
 import torch.nn.functional as F
-from model import SQVAE, GaussianSQVAE
+from model import SQVAE, GaussianSQVAE, weights_init
 from perceptual_loss import VGGPerceptualLoss, SpectralLoss
 from quantizer import GaussianVectorQuantizer, VmfVectorQuantizer
-from networks.util import weights_init
 import networks.microdoppler_enhanced as net_microdoppler_enhanced
 
 
